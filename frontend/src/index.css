@@ -12,6 +12,62 @@ body {
   @apply bg-stone-100 text-stone-900 antialiased;
 }
 
+/* Markdown rendered inside explanation popovers. */
+.md > :first-child {
+  margin-top: 0;
+}
+.md > :last-child {
+  margin-bottom: 0;
+}
+.md p {
+  margin: 0 0 0.6em;
+}
+.md strong {
+  font-weight: 700;
+}
+.md em {
+  font-style: italic;
+}
+.md ul,
+.md ol {
+  margin: 0 0 0.6em 1.25em;
+}
+.md ul {
+  list-style: disc;
+}
+.md ol {
+  list-style: decimal;
+}
+.md li {
+  margin: 0.15em 0;
+}
+.md li > p {
+  margin: 0;
+}
+.md h1,
+.md h2,
+.md h3,
+.md h4 {
+  font-weight: 700;
+  margin: 0.5em 0 0.3em;
+  line-height: 1.3;
+}
+.md code {
+  background: rgba(0, 0, 0, 0.06);
+  padding: 0.05em 0.3em;
+  border-radius: 3px;
+  font-size: 0.9em;
+}
+.md blockquote {
+  border-left: 3px solid #d6d3d1;
+  padding-left: 0.7em;
+  margin: 0 0 0.6em;
+  color: #57534e;
+}
+.md a {
+  text-decoration: underline;
+}
+
 /* Blurred translation text: hidden by default, revealed while the pointer is
    anywhere over its block (mouseover), re-blurred on mouseout. Hovering the
    whole cell — not just the glyphs — keeps the reveal from feeling janky.

@@ -1,5 +1,7 @@
 import { ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 import {
   Alternative,
   Block,
@@ -401,7 +403,9 @@ function ExplainBody({ text, onSave }: { text: string; onSave: () => void }) {
   const [saved, setSaved] = useState(false)
   return (
     <div>
-      <p className="whitespace-pre-wrap">{text}</p>
+      <div className="md">
+        <ReactMarkdown remarkPlugins={[remarkGfm]}>{text}</ReactMarkdown>
+      </div>
       <button
         onClick={() => {
           onSave()
