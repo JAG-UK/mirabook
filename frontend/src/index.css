@@ -12,15 +12,17 @@ body {
   @apply bg-stone-100 text-stone-900 antialiased;
 }
 
-/* Blurred translation text: hidden by default, revealed on hover (mouseover),
-   re-blurred on mouseout. Discourage selecting/copying while blurred. */
+/* Blurred translation text: hidden by default, revealed while the pointer is
+   anywhere over its block (mouseover), re-blurred on mouseout. Hovering the
+   whole cell — not just the glyphs — keeps the reveal from feeling janky.
+   user-select:none discourages selecting/copying while blurred. */
 .blur-cheat {
   filter: blur(5px);
   user-select: none;
   cursor: pointer;
   transition: filter 0.15s ease;
 }
-.blur-cheat:hover {
+.reveal-cell:hover .blur-cheat {
   filter: none;
   user-select: text;
   cursor: auto;
@@ -175,6 +177,27 @@ body {
 }
 .spine::after {
   bottom: 14px;
+}
+
+/* a little ribbon bookmark on books with saved reading progress */
+.bookmark-ribbon {
+  position: absolute;
+  top: -3px;
+  right: 10px;
+  width: 9px;
+  height: 24px;
+  background: #c0392b;
+  border-radius: 0 0 1px 1px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
+}
+.bookmark-ribbon::after {
+  content: '';
+  position: absolute;
+  bottom: -5px;
+  left: 0;
+  border-left: 4.5px solid transparent;
+  border-right: 4.5px solid transparent;
+  border-top: 5px solid #c0392b;
 }
 
 .spine-title {

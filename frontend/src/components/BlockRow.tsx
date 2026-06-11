@@ -62,13 +62,14 @@ export default function BlockRow({
     </div>
   )
 
-  // Translation cell (blurrable unless it's a heading). Blur lifts on hover.
-  const blurred = blurEnabled && !isHeading
+  // Translation cell: blurred by default (headings included), revealed while
+  // the pointer is anywhere over the cell.
+  const blurred = blurEnabled
   const translation_cell = (
     <div
       onMouseEnter={enter}
       onMouseLeave={leave}
-      className={`group relative rounded px-2 py-1 transition-colors ${hl} ${
+      className={`reveal-cell group relative rounded px-2 py-1 transition-colors ${hl} ${
         isHeading
           ? `${headingClass(block.level)} mt-4 text-stone-700`
           : 'leading-relaxed text-stone-700'

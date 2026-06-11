@@ -115,6 +115,14 @@ def ingest_pdf(
         TocEntry(level=lvl, title=t.strip(), page=pg)
         for lvl, t, pg in doc.get_toc()
     ]
+    # Fall back to a chapter list derived from detected headings (level <= 2)
+    # when the PDF carries no embedded outline.
+    if not toc:
+        toc = [
+            TocEntry(level=b.level or 1, title=b.text, page=b.page)
+            for b in blocks
+            if b.type == BlockType.heading and (b.level or 1) <= 2
+        ]
     meta = BookMeta(
         id=book_id,
         title=title,

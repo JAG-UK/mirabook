@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { BookMeta, listBooks, uploadBook } from '../api/client'
 import Spinner from '../components/Spinner'
+import { loadProgress } from '../lib/progress'
 
 // Muted book-cloth colours; chosen deterministically per book.
 const SPINE_COLORS = [
@@ -49,6 +50,8 @@ export default function Library() {
       if (fileInput.current) fileInput.current.value = ''
     }
   }
+
+  const progress = loadProgress()
 
   // Split books into shelves; always render at least one (possibly empty) shelf.
   const shelves: BookMeta[][] = []
@@ -108,21 +111,30 @@ export default function Library() {
           {shelves.map((shelf, si) => (
             <div key={si}>
               <div className="shelf">
-                {shelf.map((b) => (
-                  <button
-                    key={b.id}
-                    className="spine"
-                    style={{
-                      background: spineColor(b.id),
-                      height: spineHeight(b.id),
-                      width: spineWidth(b.id),
-                    }}
-                    onClick={() => navigate(`/read/${b.id}`)}
-                    title={`${b.title} — ${b.source_lang} → ${b.target_lang}, ${b.page_count} pages`}
-                  >
-                    <span className="spine-title">{b.title}</span>
-                  </button>
-                ))}
+                {shelf.map((b) => {
+                  const saved = progress[b.id]
+                  const bookmarked = !!saved && saved > 1
+                  return (
+                    <button
+                      key={b.id}
+                      className="spine"
+                      style={{
+                        background: spineColor(b.id),
+                        height: spineHeight(b.id),
+                        width: spineWidth(b.id),
+                      }}
+                      onClick={() => navigate(`/read/${b.id}`)}
+                      title={
+                        bookmarked
+                          ? `${b.title} — resume on page ${saved} of ${b.page_count}`
+                          : `${b.title} — ${b.source_lang} → ${b.target_lang}, ${b.page_count} pages`
+                      }
+                    >
+                      {bookmarked && <span className="bookmark-ribbon" />}
+                      <span className="spine-title">{b.title}</span>
+                    </button>
+                  )
+                })}
                 {si === shelves.length - 1 && addSpine}
                 {books.length === 0 && (
                   <span className="ml-3 self-center text-sm italic text-amber-50/70">

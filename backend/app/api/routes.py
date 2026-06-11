@@ -12,6 +12,7 @@ from app.models import (
     BookMeta,
     Explanation,
     Page,
+    TocEntry,
     TranslatedBlock,
 )
 from app.store.db import Store
@@ -73,9 +74,16 @@ async def upload_book(req: Request, file: UploadFile = File(...)):
 
 @router.get("/books/{book_id}", response_model=BookMeta)
 async def get_book(req: Request, book_id: str):
-    meta = _store(req).get_book(book_id)
+    store = _store(req)
+    meta = store.get_book(book_id)
     if not meta:
         raise HTTPException(404, "Book not found")
+    # If the PDF had no outline, derive a chapter list from detected headings.
+    if not meta.toc:
+        meta.toc = [
+            TocEntry(title=t, page=p, level=lvl)
+            for (t, p, lvl) in store.get_headings(book_id)
+        ]
     return meta
 
 

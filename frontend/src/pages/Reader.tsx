@@ -14,6 +14,7 @@ import BlockRow from '../components/BlockRow'
 import InfoPopover from '../components/InfoPopover'
 import SelectionMenu, { SelectionState } from '../components/SelectionMenu'
 import Spinner from '../components/Spinner'
+import { getProgress, saveProgress } from '../lib/progress'
 
 interface PopoverState {
   x: number
@@ -26,7 +27,8 @@ interface PopoverState {
 export default function Reader() {
   const { bookId = '' } = useParams()
   const [meta, setMeta] = useState<BookMeta | null>(null)
-  const [page, setPage] = useState(1)
+  // Resume where we left off (bookmark).
+  const [page, setPage] = useState(() => getProgress(bookId))
   const [data, setData] = useState<PageData | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -39,8 +41,19 @@ export default function Reader() {
   const cache = useRef<Map<number, PageData>>(new Map())
 
   useEffect(() => {
-    getBook(bookId).then(setMeta).catch((e) => setError(String(e)))
+    getBook(bookId)
+      .then((m) => {
+        setMeta(m)
+        // Clamp a resumed page that's now out of range.
+        setPage((p) => Math.min(Math.max(1, p), m.page_count))
+      })
+      .catch((e) => setError(String(e)))
   }, [bookId])
+
+  // Remember the page (bookmark) whenever it changes.
+  useEffect(() => {
+    if (meta) saveProgress(bookId, page)
+  }, [bookId, page, meta])
 
   const ensurePage = useCallback(
     async (n: number): Promise<PageData> => {
@@ -100,6 +113,23 @@ export default function Reader() {
     return m
   }, [data])
 
+  // The chapter whose start is at or before the current page.
+  const currentChapter = useMemo(() => {
+    if (!meta?.toc?.length) return null
+    let cur: string | null = null
+    for (const t of meta.toc) {
+      if (t.page <= page) cur = t.title
+      else break
+    }
+    return cur
+  }, [meta, page])
+
+  // Blocks worth rendering; a page with none is genuinely blank.
+  const renderable = useMemo(
+    () => data?.blocks.filter((b) => b.type === 'image' || b.text.trim()) ?? [],
+    [data],
+  )
+
   function handleSourceMouseUp(block: Block) {
     const s = window.getSelection()
     const text = s?.toString().trim() ?? ''
@@ -155,7 +185,18 @@ export default function Reader() {
           <Link to="/" className="text-stone-500 hover:text-stone-800" title="Library">
             ←
           </Link>
-          <span className="truncate font-serif text-lg font-semibold">{meta?.title ?? '…'}</span>
+          <span className="shrink-0 truncate font-serif text-lg font-semibold">
+            {meta?.title ?? '…'}
+          </span>
+          {currentChapter && (
+            <span
+              className="hidden min-w-0 truncate text-sm text-stone-400 sm:inline"
+              title={currentChapter}
+            >
+              <span className="text-stone-300">— </span>
+              {currentChapter}
+            </span>
+          )}
 
           {meta && meta.toc.length > 0 && (
             <select
@@ -209,7 +250,7 @@ export default function Reader() {
 
       {/* Page body — styled as an open book resting on a desk */}
       <main className="reader-desk min-h-full px-3 py-6 md:px-6 md:py-10">
-        <div className="book-surface mx-auto max-w-5xl px-6 py-8 md:px-12 md:py-12">
+        <div className="book-surface mx-auto flex min-h-[60vh] max-w-5xl flex-col px-6 py-8 md:px-12 md:py-12">
           {/* running heads */}
           <div className="mb-5 hidden grid-cols-2 gap-x-16 border-b border-stone-300/60 pb-2 text-[11px] font-semibold uppercase tracking-widest text-stone-400 md:grid">
             <div>{meta?.source_lang ?? 'Original'}</div>
@@ -223,9 +264,13 @@ export default function Reader() {
                 First visit to a page runs the model; it’s cached after that.
               </p>
             </div>
+          ) : renderable.length === 0 ? (
+            <div className="flex flex-1 items-center justify-center py-20 text-stone-400">
+              <span className="italic">(blank page)</span>
+            </div>
           ) : (
             <div className="grid grid-cols-1 gap-x-8 gap-y-1 md:grid-cols-2 md:gap-x-16">
-              {data?.blocks.map((b) => (
+              {renderable.map((b) => (
                 <BlockRow
                   key={b.id}
                   block={b}

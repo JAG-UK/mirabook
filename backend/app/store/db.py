@@ -136,6 +136,21 @@ class Store:
             for r in rows
         ]
 
+    def get_headings(self, book_id: str, max_level: int = 2) -> list[tuple[str, int, int]]:
+        """Heading blocks (level <= max_level) as (title, page, level), in
+        reading order — used to derive a chapter list / TOC."""
+        rows = self._conn.execute(
+            "SELECT text, page, level FROM blocks "
+            "WHERE book_id = ? AND type = 'heading' AND text <> '' ORDER BY page, ord",
+            (book_id,),
+        ).fetchall()
+        out: list[tuple[str, int, int]] = []
+        for r in rows:
+            level = r["level"] or 1
+            if level <= max_level:
+                out.append((r["text"], r["page"], level))
+        return out
+
     # --- translations cache ---
     def get_cached(
         self, book_id: str, block_ids: list[str], model_id: str
