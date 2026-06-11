@@ -23,6 +23,7 @@ CREATE TABLE IF NOT EXISTS blocks (
   type TEXT NOT NULL,
   text TEXT NOT NULL DEFAULT '',
   level INTEGER,
+  size REAL,
   src TEXT,
   bbox_json TEXT,
   PRIMARY KEY (book_id, block_id)
@@ -49,8 +50,15 @@ class Store:
         self._conn = sqlite3.connect(path, check_same_thread=False)
         self._conn.row_factory = sqlite3.Row
         self._conn.executescript(SCHEMA)
+        self._migrate()
         self._conn.commit()
         self._lock = threading.Lock()
+
+    def _migrate(self) -> None:
+        """Add columns introduced after a DB was first created."""
+        cols = {r[1] for r in self._conn.execute("PRAGMA table_info(blocks)")}
+        if "size" not in cols:
+            self._conn.execute("ALTER TABLE blocks ADD COLUMN size REAL")
 
     def close(self) -> None:
         self._conn.close()
@@ -74,8 +82,8 @@ class Store:
             self._conn.execute("DELETE FROM blocks WHERE book_id = ?", (meta.id,))
             self._conn.executemany(
                 "INSERT INTO blocks "
-                "(book_id, block_id, page, ord, type, text, level, src, bbox_json) "
-                "VALUES (?,?,?,?,?,?,?,?,?)",
+                "(book_id, block_id, page, ord, type, text, level, size, src, bbox_json) "
+                "VALUES (?,?,?,?,?,?,?,?,?,?)",
                 [
                     (
                         meta.id,
@@ -85,6 +93,7 @@ class Store:
                         b.type.value,
                         b.text,
                         b.level,
+                        b.size,
                         b.src,
                         json.dumps(b.bbox) if b.bbox else None,
                     )
@@ -117,39 +126,47 @@ class Store:
         )
 
     # --- blocks ---
+    @staticmethod
+    def _row_to_block(r: sqlite3.Row) -> Block:
+        return Block(
+            id=r["block_id"],
+            page=r["page"],
+            order=r["ord"],
+            type=BlockType(r["type"]),
+            text=r["text"],
+            level=r["level"],
+            size=r["size"],
+            src=r["src"],
+            bbox=tuple(json.loads(r["bbox_json"])) if r["bbox_json"] else None,
+        )
+
     def get_page(self, book_id: str, page: int) -> list[Block]:
         rows = self._conn.execute(
             "SELECT * FROM blocks WHERE book_id = ? AND page = ? ORDER BY ord",
             (book_id, page),
         ).fetchall()
-        return [
-            Block(
-                id=r["block_id"],
-                page=r["page"],
-                order=r["ord"],
-                type=BlockType(r["type"]),
-                text=r["text"],
-                level=r["level"],
-                src=r["src"],
-                bbox=tuple(json.loads(r["bbox_json"])) if r["bbox_json"] else None,
-            )
-            for r in rows
-        ]
+        return [self._row_to_block(r) for r in rows]
 
-    def get_headings(self, book_id: str, max_level: int = 2) -> list[tuple[str, int, int]]:
-        """Heading blocks (level <= max_level) as (title, page, level), in
-        reading order — used to derive a chapter list / TOC."""
+    def get_headings(self, book_id: str) -> list[Block]:
+        """All heading blocks in reading order — input to TOC derivation."""
         rows = self._conn.execute(
-            "SELECT text, page, level FROM blocks "
+            "SELECT * FROM blocks "
             "WHERE book_id = ? AND type = 'heading' AND text <> '' ORDER BY page, ord",
             (book_id,),
         ).fetchall()
-        out: list[tuple[str, int, int]] = []
-        for r in rows:
-            level = r["level"] or 1
-            if level <= max_level:
-                out.append((r["text"], r["page"], level))
-        return out
+        return [self._row_to_block(r) for r in rows]
+
+    def body_size(self, book_id: str) -> float:
+        """Median font size of paragraph blocks (the body text)."""
+        rows = self._conn.execute(
+            "SELECT size FROM blocks "
+            "WHERE book_id = ? AND type = 'paragraph' AND size IS NOT NULL",
+            (book_id,),
+        ).fetchall()
+        sizes = sorted(r["size"] for r in rows)
+        if not sizes:
+            return 12.0
+        return sizes[len(sizes) // 2]
 
     # --- translations cache ---
     def get_cached(

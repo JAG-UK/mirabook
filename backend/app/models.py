@@ -23,6 +23,7 @@ class Block(BaseModel):
     type: BlockType
     text: str = ""
     level: int | None = None  # heading level (1 = biggest)
+    size: float | None = None  # dominant font size (pt), used for TOC detection
     src: str | None = None  # URL path for image blocks
     bbox: tuple[float, float, float, float] | None = None
 

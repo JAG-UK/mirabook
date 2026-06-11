@@ -6,13 +6,13 @@ from fastapi import APIRouter, File, HTTPException, Request, UploadFile
 from pydantic import BaseModel
 
 from app.ingest.pdf import ingest_pdf
+from app.ingest.toc import derive_toc
 from app.models import (
     Alternative,
     BlockType,
     BookMeta,
     Explanation,
     Page,
-    TocEntry,
     TranslatedBlock,
 )
 from app.store.db import Store
@@ -80,10 +80,7 @@ async def get_book(req: Request, book_id: str):
         raise HTTPException(404, "Book not found")
     # If the PDF had no outline, derive a chapter list from detected headings.
     if not meta.toc:
-        meta.toc = [
-            TocEntry(title=t, page=p, level=lvl)
-            for (t, p, lvl) in store.get_headings(book_id)
-        ]
+        meta.toc = derive_toc(store.get_headings(book_id), store.body_size(book_id))
     return meta
 
 

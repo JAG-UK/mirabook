@@ -30,3 +30,16 @@ def test_ingest_sample_structure():
     # Block ids are unique and stable (alignment keys for translation).
     ids = [b.id for b in blocks]
     assert len(ids) == len(set(ids))
+
+
+def test_chapter_detection_excludes_title():
+    media = Path(tempfile.mkdtemp())
+    meta, _ = ingest_pdf(
+        SAMPLE, "test", "don-quijote-es", media, "/media/test", "Spanish", "English"
+    )
+    titles = [t.title for t in meta.toc]
+    # Chapters are detected...
+    assert sum("Capítulo" in t for t in titles) >= 3
+    # ...and the book title / byline are NOT treated as chapters.
+    assert not any(t.strip().lower().startswith("don quijote de la mancha") for t in titles)
+    assert not any("Cervantes" in t for t in titles)
