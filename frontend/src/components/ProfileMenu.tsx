@@ -14,7 +14,7 @@ export default function ProfileMenu() {
     <div className="relative">
       <button
         onClick={() => setOpen((o) => !o)}
-        className="flex items-center gap-2 rounded-full border border-stone-300 bg-white/70 py-1 pl-1 pr-3 text-sm hover:bg-white"
+        className="flex items-center gap-2 rounded-full border border-stone-300 bg-white/80 py-1 pl-1 pr-3 text-sm text-stone-800 hover:bg-white"
         title="Profile"
       >
         <span className="flex h-7 w-7 items-center justify-center rounded-full bg-stone-100 text-base">
@@ -26,7 +26,7 @@ export default function ProfileMenu() {
       {open && (
         <>
           <div className="fixed inset-0 z-30" onClick={() => setOpen(false)} />
-          <div className="absolute right-0 z-40 mt-2 w-60 overflow-hidden rounded-xl border border-stone-200 bg-white shadow-xl">
+          <div className="absolute right-0 z-40 mt-2 w-60 overflow-hidden rounded-xl border border-stone-200 bg-white text-stone-800 shadow-xl">
             <div className="px-3 pb-1 pt-2 text-xs font-semibold uppercase tracking-wide text-stone-400">
               Profiles
             </div>

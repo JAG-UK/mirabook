@@ -1,4 +1,4 @@
-import { Link } from 'react-router-dom'
+import { useNavigate } from 'react-router-dom'
 import { useProfile } from '../lib/profiles'
 import { Animation, AVATARS, Font, Theme } from '../lib/types'
 
@@ -39,14 +39,19 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
 
 export default function Settings() {
   const { active, profiles, updateActive, removeProfile } = useProfile()
+  const navigate = useNavigate()
   const s = active.settings
 
   return (
     <div className="mx-auto max-w-2xl px-5 py-8">
       <header className="mb-6 flex items-center gap-3">
-        <Link to="/" className="text-stone-500 hover:text-stone-800" title="Library">
+        <button
+          onClick={() => navigate(-1)}
+          className="text-stone-500 hover:text-stone-800"
+          title="Back"
+        >
           ←
-        </Link>
+        </button>
         <h1 className="font-serif text-2xl font-bold">Profile &amp; settings</h1>
       </header>
 
