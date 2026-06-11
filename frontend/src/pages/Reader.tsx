@@ -32,7 +32,6 @@ export default function Reader() {
   const [error, setError] = useState<string | null>(null)
 
   const [blurEnabled, setBlurEnabled] = useState(true)
-  const [revealed, setRevealed] = useState<Set<string>>(new Set())
   const [hoveredId, setHoveredId] = useState<string | null>(null)
   const [sel, setSel] = useState<SelectionState | null>(null)
   const [popover, setPopover] = useState<PopoverState | null>(null)
@@ -60,7 +59,6 @@ export default function Reader() {
     let cancelled = false
     setLoading(true)
     setSel(null)
-    setRevealed(new Set())
     ensurePage(page)
       .then((d) => {
         if (cancelled) return
@@ -233,10 +231,8 @@ export default function Reader() {
                   block={b}
                   translation={transMap.get(b.id)}
                   blurEnabled={blurEnabled}
-                  revealed={revealed.has(b.id)}
                   hovered={hoveredId === b.id}
                   onHover={setHoveredId}
-                  onReveal={(id) => setRevealed((s) => new Set(s).add(id))}
                   onSourceMouseUp={handleSourceMouseUp}
                   onAlternatives={handleAlternatives}
                 />
@@ -245,6 +241,24 @@ export default function Reader() {
           )}
         </div>
       </main>
+
+      {/* Subtle page-turn buttons flanking the book (desktop) */}
+      <button
+        onClick={() => go(page - 1)}
+        disabled={page <= 1}
+        aria-label="Previous page"
+        className="fixed left-2 top-1/2 z-20 hidden h-12 w-12 -translate-y-1/2 items-center justify-center rounded-full border border-stone-300/70 bg-white/70 text-2xl text-stone-500 shadow-sm backdrop-blur transition hover:bg-white hover:text-stone-800 disabled:pointer-events-none disabled:opacity-0 md:flex lg:left-6"
+      >
+        ‹
+      </button>
+      <button
+        onClick={() => go(page + 1)}
+        disabled={!!meta && page >= meta.page_count}
+        aria-label="Next page"
+        className="fixed right-2 top-1/2 z-20 hidden h-12 w-12 -translate-y-1/2 items-center justify-center rounded-full border border-stone-300/70 bg-white/70 text-2xl text-stone-500 shadow-sm backdrop-blur transition hover:bg-white hover:text-stone-800 disabled:pointer-events-none disabled:opacity-0 md:flex lg:right-6"
+      >
+        ›
+      </button>
 
       {sel && (
         <SelectionMenu

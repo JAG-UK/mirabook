@@ -15,10 +15,8 @@ interface Props {
   block: Block
   translation?: TranslatedBlock
   blurEnabled: boolean
-  revealed: boolean
   hovered: boolean
   onHover: (id: string | null) => void
-  onReveal: (id: string) => void
   onSourceMouseUp: (block: Block) => void
   onAlternatives: (block: Block, anchor: { x: number; y: number }) => void
 }
@@ -27,10 +25,8 @@ export default function BlockRow({
   block,
   translation,
   blurEnabled,
-  revealed,
   hovered,
   onHover,
-  onReveal,
   onSourceMouseUp,
   onAlternatives,
 }: Props) {
@@ -66,8 +62,8 @@ export default function BlockRow({
     </div>
   )
 
-  // Translation cell (blurrable unless it's a heading)
-  const blurred = blurEnabled && !isHeading && !revealed
+  // Translation cell (blurrable unless it's a heading). Blur lifts on hover.
+  const blurred = blurEnabled && !isHeading
   const translation_cell = (
     <div
       onMouseEnter={enter}
@@ -80,8 +76,7 @@ export default function BlockRow({
     >
       <span
         className={blurred ? 'blur-cheat' : ''}
-        onClick={blurred ? () => onReveal(block.id) : undefined}
-        title={blurred ? 'Click to reveal' : undefined}
+        title={blurred ? 'Hover to reveal' : undefined}
       >
         {translation ? translation.text : <span className="text-stone-300">…</span>}
       </span>
