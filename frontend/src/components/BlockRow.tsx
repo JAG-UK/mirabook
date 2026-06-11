@@ -1,13 +1,14 @@
 import { Block, TranslatedBlock, mediaUrl } from '../api/client'
 
+// Headings inherit the book font (var --book-font); only weight/size here.
 const headingClass = (level?: number | null) => {
   switch (level) {
     case 1:
-      return 'font-serif text-2xl font-bold'
+      return 'text-2xl font-bold'
     case 2:
-      return 'font-serif text-xl font-bold'
+      return 'text-xl font-bold'
     default:
-      return 'font-serif text-lg font-semibold'
+      return 'text-lg font-semibold'
   }
 }
 
@@ -44,7 +45,7 @@ export default function BlockRow({
   }
 
   const isHeading = block.type === 'heading'
-  const hl = hovered ? 'bg-amber-100/70' : ''
+  const hl = hovered ? 'bg-[var(--hl)]' : ''
   const enter = () => onHover(block.id)
   const leave = () => onHover(null)
 
@@ -55,7 +56,7 @@ export default function BlockRow({
       onMouseLeave={leave}
       onMouseUp={() => onSourceMouseUp(block)}
       className={`cursor-text select-text rounded px-2 py-1 transition-colors ${hl} ${
-        isHeading ? `${headingClass(block.level)} mt-4` : 'font-serif leading-relaxed'
+        isHeading ? `${headingClass(block.level)} mt-4` : ''
       }`}
     >
       {block.text}
@@ -69,10 +70,8 @@ export default function BlockRow({
     <div
       onMouseEnter={enter}
       onMouseLeave={leave}
-      className={`reveal-cell group relative rounded px-2 py-1 transition-colors ${hl} ${
-        isHeading
-          ? `${headingClass(block.level)} mt-4 text-stone-700`
-          : 'leading-relaxed text-stone-700'
+      className={`reveal-cell group relative rounded px-2 py-1 text-[color:var(--ink-soft)] transition-colors ${hl} ${
+        isHeading ? `${headingClass(block.level)} mt-4` : ''
       }`}
     >
       <span

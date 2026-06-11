@@ -11,10 +11,14 @@ import {
   getPage,
 } from '../api/client'
 import BlockRow from '../components/BlockRow'
+import ChapterDrawer from '../components/ChapterDrawer'
 import InfoPopover from '../components/InfoPopover'
+import ProfileMenu from '../components/ProfileMenu'
 import SelectionMenu, { SelectionState } from '../components/SelectionMenu'
 import Spinner from '../components/Spinner'
 import { getProgress, saveProgress } from '../lib/progress'
+import { useProfile } from '../lib/profiles'
+import { addWord } from '../lib/vocab'
 
 interface PopoverState {
   x: number
@@ -26,9 +30,12 @@ interface PopoverState {
 
 export default function Reader() {
   const { bookId = '' } = useParams()
+  const { active } = useProfile()
+  const settings = active.settings
   const [meta, setMeta] = useState<BookMeta | null>(null)
-  // Resume where we left off (bookmark).
-  const [page, setPage] = useState(() => getProgress(bookId))
+  // Resume where this profile left off (bookmark).
+  const [page, setPage] = useState(() => getProgress(active.id, bookId))
+  const [dir, setDir] = useState<'next' | 'prev'>('next')
   const [data, setData] = useState<PageData | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -37,6 +44,7 @@ export default function Reader() {
   const [hoveredId, setHoveredId] = useState<string | null>(null)
   const [sel, setSel] = useState<SelectionState | null>(null)
   const [popover, setPopover] = useState<PopoverState | null>(null)
+  const [tocOpen, setTocOpen] = useState(false)
 
   const cache = useRef<Map<number, PageData>>(new Map())
 
@@ -50,10 +58,10 @@ export default function Reader() {
       .catch((e) => setError(String(e)))
   }, [bookId])
 
-  // Remember the page (bookmark) whenever it changes.
+  // Remember the page (bookmark) for this profile whenever it changes.
   useEffect(() => {
-    if (meta) saveProgress(bookId, page)
-  }, [bookId, page, meta])
+    if (meta) saveProgress(active.id, bookId, page)
+  }, [active.id, bookId, page, meta])
 
   const ensurePage = useCallback(
     async (n: number): Promise<PageData> => {
@@ -92,7 +100,11 @@ export default function Reader() {
   const go = useCallback(
     (n: number) => {
       if (!meta) return
-      setPage(Math.min(Math.max(1, n), meta.page_count))
+      const target = Math.min(Math.max(1, n), meta.page_count)
+      setPage((p) => {
+        if (target !== p) setDir(target > p ? 'next' : 'prev')
+        return target
+      })
     },
     [meta],
   )
@@ -148,7 +160,18 @@ export default function Reader() {
     setPopover({ x, y, title: kind === 'idiom' ? 'Idiom' : 'Grammar', loading: true })
     try {
       const ex = await explain(text, context, kind)
-      setPopover((p) => p && { ...p, loading: false, content: ex.text })
+      const onSave = () =>
+        addWord(active.id, {
+          text,
+          context,
+          kind,
+          explanation: ex.text,
+          bookId,
+          bookTitle: meta?.title ?? '',
+        })
+      setPopover(
+        (p) => p && { ...p, loading: false, content: <ExplainBody text={ex.text} onSave={onSave} /> },
+      )
     } catch {
       setPopover((p) => p && { ...p, loading: false, content: 'Could not load explanation.' })
     }
@@ -177,40 +200,47 @@ export default function Reader() {
     )
   }
 
+  const animClass =
+    settings.animation === 'none'
+      ? ''
+      : settings.animation === 'fade'
+        ? 'pt-fade'
+        : `pt-${settings.animation}-${dir}`
+
   return (
-    <div className="min-h-full">
+    <div className="reader-root min-h-full" data-theme={settings.theme} data-font={settings.font}>
       {/* Toolbar */}
-      <header className="sticky top-0 z-20 border-b border-stone-200 bg-stone-50/90 backdrop-blur">
-        <div className="mx-auto flex max-w-5xl items-center gap-3 px-4 py-2.5">
-          <Link to="/" className="text-stone-500 hover:text-stone-800" title="Library">
+      <header
+        className="sticky top-0 z-20 border-b backdrop-blur"
+        style={{ backgroundColor: 'var(--bar)', borderColor: 'var(--bar-border)' }}
+      >
+        <div className="mx-auto flex max-w-5xl items-center gap-2 px-4 py-2.5 sm:gap-3">
+          <Link to="/" className="text-[color:var(--muted)] hover:opacity-80" title="Library">
             ←
           </Link>
-          <span className="shrink-0 truncate font-serif text-lg font-semibold">
+          <span
+            className="shrink-0 truncate text-lg font-semibold"
+            style={{ fontFamily: 'var(--book-font)' }}
+          >
             {meta?.title ?? '…'}
           </span>
+          {meta && meta.toc.length > 0 && (
+            <button
+              onClick={() => setTocOpen(true)}
+              className="flex shrink-0 items-center gap-1 rounded px-2 py-1 text-sm text-[color:var(--muted)] hover:bg-black/5"
+              title="Chapters"
+            >
+              <span className="text-base leading-none">☰</span>
+              <span className="hidden sm:inline">Chapters</span>
+            </button>
+          )}
           {currentChapter && (
             <span
-              className="hidden min-w-0 truncate text-sm text-stone-400 sm:inline"
+              className="hidden min-w-0 truncate text-sm text-[color:var(--muted)] lg:inline"
               title={currentChapter}
             >
-              <span className="text-stone-300">— </span>
-              {currentChapter}
+              — {currentChapter}
             </span>
-          )}
-
-          {meta && meta.toc.length > 0 && (
-            <select
-              className="ml-2 max-w-[10rem] truncate rounded border border-stone-300 bg-white px-2 py-1 text-sm"
-              value=""
-              onChange={(e) => e.target.value && go(Number(e.target.value))}
-            >
-              <option value="">Chapters…</option>
-              {meta.toc.map((t, i) => (
-                <option key={i} value={t.page}>
-                  {t.title}
-                </option>
-              ))}
-            </select>
           )}
 
           <div className="ml-auto flex items-center gap-2">
@@ -219,17 +249,17 @@ export default function Reader() {
               className={`rounded px-2.5 py-1 text-sm ${
                 blurEnabled
                   ? 'bg-stone-800 text-white'
-                  : 'border border-stone-300 text-stone-600'
+                  : 'border border-stone-400 text-[color:var(--ink-soft)]'
               }`}
               title="Blur the translation to avoid peeking"
             >
               {blurEnabled ? 'Blur on' : 'Blur off'}
             </button>
-            <div className="flex items-center gap-1 text-sm text-stone-600">
+            <div className="flex items-center gap-1 text-sm text-[color:var(--ink-soft)]">
               <button
                 onClick={() => go(page - 1)}
                 disabled={page <= 1}
-                className="rounded px-2 py-1 hover:bg-stone-200 disabled:opacity-30"
+                className="rounded px-2 py-1 hover:bg-black/5 disabled:opacity-30"
               >
                 ‹
               </button>
@@ -239,11 +269,12 @@ export default function Reader() {
               <button
                 onClick={() => go(page + 1)}
                 disabled={!!meta && page >= meta.page_count}
-                className="rounded px-2 py-1 hover:bg-stone-200 disabled:opacity-30"
+                className="rounded px-2 py-1 hover:bg-black/5 disabled:opacity-30"
               >
                 ›
               </button>
             </div>
+            <ProfileMenu />
           </div>
         </div>
       </header>
@@ -252,38 +283,47 @@ export default function Reader() {
       <main className="reader-desk min-h-full px-3 py-6 md:px-6 md:py-10">
         <div className="book-surface mx-auto flex min-h-[60vh] max-w-5xl flex-col px-6 py-8 md:px-12 md:py-12">
           {/* running heads */}
-          <div className="mb-5 hidden grid-cols-2 gap-x-16 border-b border-stone-300/60 pb-2 text-[11px] font-semibold uppercase tracking-widest text-stone-400 md:grid">
+          <div
+            className="mb-5 hidden grid-cols-2 gap-x-16 border-b pb-2 text-[11px] font-semibold uppercase tracking-widest text-[color:var(--muted)] md:grid"
+            style={{ borderColor: 'var(--bar-border)' }}
+          >
             <div>{meta?.source_lang ?? 'Original'}</div>
             <div>{meta?.target_lang ?? 'Translation'}</div>
           </div>
 
-          {loading ? (
-            <div className="py-20">
-              <Spinner label="Translating this page…" />
-              <p className="mt-2 text-sm text-stone-400">
-                First visit to a page runs the model; it’s cached after that.
-              </p>
-            </div>
-          ) : renderable.length === 0 ? (
-            <div className="flex flex-1 items-center justify-center py-20 text-stone-400">
-              <span className="italic">(blank page)</span>
-            </div>
-          ) : (
-            <div className="grid grid-cols-1 gap-x-8 gap-y-1 md:grid-cols-2 md:gap-x-16">
-              {renderable.map((b) => (
-                <BlockRow
-                  key={b.id}
-                  block={b}
-                  translation={transMap.get(b.id)}
-                  blurEnabled={blurEnabled}
-                  hovered={hoveredId === b.id}
-                  onHover={setHoveredId}
-                  onSourceMouseUp={handleSourceMouseUp}
-                  onAlternatives={handleAlternatives}
-                />
-              ))}
-            </div>
-          )}
+          {/* keyed by page so each turn replays the chosen animation */}
+          <div key={page} className={`flex flex-1 flex-col ${animClass}`}>
+            {loading ? (
+              <div className="py-20">
+                <Spinner label="Translating this page…" />
+                <p className="mt-2 text-sm text-[color:var(--muted)]">
+                  First visit to a page runs the model; it’s cached after that.
+                </p>
+              </div>
+            ) : renderable.length === 0 ? (
+              <div className="flex flex-1 items-center justify-center py-20 text-[color:var(--muted)]">
+                <span className="italic">(blank page)</span>
+              </div>
+            ) : (
+              <div
+                className="grid grid-cols-1 gap-x-8 gap-y-1 md:grid-cols-2 md:gap-x-16"
+                style={{ fontSize: `${settings.fontScale}rem`, lineHeight: settings.lineSpacing }}
+              >
+                {renderable.map((b) => (
+                  <BlockRow
+                    key={b.id}
+                    block={b}
+                    translation={transMap.get(b.id)}
+                    blurEnabled={blurEnabled}
+                    hovered={hoveredId === b.id}
+                    onHover={setHoveredId}
+                    onSourceMouseUp={handleSourceMouseUp}
+                    onAlternatives={handleAlternatives}
+                  />
+                ))}
+              </div>
+            )}
+          </div>
         </div>
       </main>
 
@@ -305,6 +345,14 @@ export default function Reader() {
         ›
       </button>
 
+      <ChapterDrawer
+        open={tocOpen}
+        toc={meta?.toc ?? []}
+        currentPage={page}
+        onSelect={(p) => go(p)}
+        onClose={() => setTocOpen(false)}
+      />
+
       {sel && (
         <SelectionMenu
           sel={sel}
@@ -323,6 +371,25 @@ export default function Reader() {
           {popover.loading ? <Spinner label="Thinking…" /> : popover.content}
         </InfoPopover>
       )}
+    </div>
+  )
+}
+
+function ExplainBody({ text, onSave }: { text: string; onSave: () => void }) {
+  const [saved, setSaved] = useState(false)
+  return (
+    <div>
+      <p className="whitespace-pre-wrap">{text}</p>
+      <button
+        onClick={() => {
+          onSave()
+          setSaved(true)
+        }}
+        disabled={saved}
+        className="mt-3 rounded-md border border-stone-300 px-2.5 py-1 text-xs font-medium text-stone-600 hover:bg-stone-100 disabled:opacity-60"
+      >
+        {saved ? 'Saved ✓' : '+ Save to words'}
+      </button>
     </div>
   )
 }

@@ -30,25 +30,74 @@ body {
 
 /* --- Open-book reading surface --- */
 
+/* Theme tokens, switched by data-theme / data-font on .reader-root. */
+.reader-root {
+  --paper: #f8f4ea;
+  --ink: #1c1917;
+  --ink-soft: #57534e;
+  --muted: #a8a29e;
+  --hl: rgba(251, 191, 36, 0.28);
+  --desk-bg: #e9e3d7;
+  --desk-top: rgba(255, 255, 255, 0.55);
+  --desk-bottom: rgba(70, 55, 35, 0.06);
+  --bar: #faf8f3;
+  --bar-border: #e7e2d8;
+  --paper-edge: rgba(70, 55, 30, 0.05);
+  --book-font: Georgia, Cambria, 'Times New Roman', serif;
+  color: var(--ink);
+}
+.reader-root[data-font='sans'] {
+  --book-font: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial,
+    sans-serif;
+}
+.reader-root[data-theme='sepia'] {
+  --paper: #efe1c4;
+  --ink: #43361f;
+  --ink-soft: #6e5c3a;
+  --muted: #9c8a64;
+  --hl: rgba(180, 120, 40, 0.25);
+  --desk-bg: #d8c7a1;
+  --desk-top: rgba(255, 250, 235, 0.4);
+  --desk-bottom: rgba(80, 60, 30, 0.1);
+  --bar: #ece0c6;
+  --bar-border: #d8c6a0;
+  --paper-edge: rgba(90, 70, 30, 0.06);
+}
+.reader-root[data-theme='night'] {
+  --paper: #211e1a;
+  --ink: #e4ded1;
+  --ink-soft: #aaa291;
+  --muted: #6b6358;
+  --hl: rgba(180, 150, 90, 0.22);
+  --desk-bg: #141210;
+  --desk-top: rgba(255, 255, 255, 0.05);
+  --desk-bottom: rgba(0, 0, 0, 0.3);
+  --bar: #1b1916;
+  --bar-border: #2c2823;
+  --paper-edge: rgba(0, 0, 0, 0.25);
+}
+
 /* The "desk" the book rests on: a warm neutral with a soft top light. */
 .reader-desk {
   background:
-    radial-gradient(1100px 460px at 50% -8%, rgba(255, 255, 255, 0.55), transparent 70%),
-    radial-gradient(1400px 700px at 50% 120%, rgba(70, 55, 35, 0.06), transparent 70%),
-    #e9e3d7;
+    radial-gradient(1100px 460px at 50% -8%, var(--desk-top), transparent 70%),
+    radial-gradient(1400px 700px at 50% 120%, var(--desk-bottom), transparent 70%),
+    var(--desk-bg);
 }
 
-/* A single sheet of warm ivory paper, floating with a soft shadow. */
+/* A single sheet of paper, floating with a soft shadow. */
 .book-surface {
   position: relative;
-  background-color: #f8f4ea;
+  background-color: var(--paper);
+  color: var(--ink);
+  font-family: var(--book-font);
   /* faint vertical fiber/vignette toward the outer edges */
   background-image: linear-gradient(
     to right,
-    rgba(70, 55, 30, 0.05),
+    var(--paper-edge),
     transparent 6%,
     transparent 94%,
-    rgba(70, 55, 30, 0.05)
+    var(--paper-edge)
   );
   border: 1px solid rgba(120, 100, 65, 0.14);
   border-radius: 10px;
@@ -63,10 +112,10 @@ body {
     background-image:
       linear-gradient(
         to right,
-        rgba(70, 55, 30, 0.05),
+        var(--paper-edge),
         transparent 6%,
         transparent 94%,
-        rgba(70, 55, 30, 0.05)
+        var(--paper-edge)
       ),
       /* the spine: shadow falling away from the center fold on both pages */
         linear-gradient(
@@ -230,4 +279,71 @@ body {
 .spine-add:hover {
   background: rgba(255, 255, 255, 0.1);
   transform: translateY(-6px);
+}
+
+/* --- Page-turn animations (per-profile setting) --- */
+@keyframes ptFadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@keyframes ptSlideNext {
+  from {
+    opacity: 0;
+    transform: translateX(30px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes ptSlidePrev {
+  from {
+    opacity: 0;
+    transform: translateX(-30px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes ptFlipNext {
+  from {
+    opacity: 0;
+    transform: perspective(1600px) rotateY(-18deg);
+  }
+  to {
+    opacity: 1;
+    transform: perspective(1600px) rotateY(0);
+  }
+}
+@keyframes ptFlipPrev {
+  from {
+    opacity: 0;
+    transform: perspective(1600px) rotateY(18deg);
+  }
+  to {
+    opacity: 1;
+    transform: perspective(1600px) rotateY(0);
+  }
+}
+.pt-fade {
+  animation: ptFadeIn 0.28s ease both;
+}
+.pt-slide-next {
+  animation: ptSlideNext 0.3s ease both;
+}
+.pt-slide-prev {
+  animation: ptSlidePrev 0.3s ease both;
+}
+.pt-flip-next {
+  transform-origin: left center;
+  animation: ptFlipNext 0.42s cubic-bezier(0.2, 0.7, 0.3, 1) both;
+}
+.pt-flip-prev {
+  transform-origin: right center;
+  animation: ptFlipPrev 0.42s cubic-bezier(0.2, 0.7, 0.3, 1) both;
 }

@@ -1,28 +1,49 @@
-// Per-book reading position, persisted in localStorage so the library
-// remembers (bookmarks) the page you were last on.
+// Per-profile reading position (bookmark), persisted in localStorage.
 
-const KEY = 'mirabook:lastPage'
+const KEY = 'mirabook:progress'
 
-type ProgressMap = Record<string, number>
+interface Entry {
+  page: number
+  at: number
+}
+// profileId -> bookId -> entry
+type Store = Record<string, Record<string, Entry>>
 
-export function loadProgress(): ProgressMap {
+function load(): Store {
   try {
-    return JSON.parse(localStorage.getItem(KEY) || '{}') as ProgressMap
+    return JSON.parse(localStorage.getItem(KEY) || '{}') as Store
   } catch {
     return {}
   }
 }
 
-export function getProgress(bookId: string): number {
-  return loadProgress()[bookId] ?? 1
+function save(s: Store): void {
+  try {
+    localStorage.setItem(KEY, JSON.stringify(s))
+  } catch {
+    /* ignore */
+  }
 }
 
-export function saveProgress(bookId: string, page: number): void {
-  const m = loadProgress()
-  m[bookId] = page
-  try {
-    localStorage.setItem(KEY, JSON.stringify(m))
-  } catch {
-    /* ignore quota/availability errors */
-  }
+export function getProgress(profileId: string, bookId: string): number {
+  return load()[profileId]?.[bookId]?.page ?? 1
+}
+
+export function saveProgress(profileId: string, bookId: string, page: number): void {
+  const s = load()
+  const forProfile = s[profileId] ?? {}
+  forProfile[bookId] = { page, at: Date.now() }
+  s[profileId] = forProfile
+  save(s)
+}
+
+export interface ProgressItem {
+  bookId: string
+  page: number
+  at: number
+}
+
+export function listProgress(profileId: string): ProgressItem[] {
+  const forProfile = load()[profileId] ?? {}
+  return Object.entries(forProfile).map(([bookId, e]) => ({ bookId, ...e }))
 }

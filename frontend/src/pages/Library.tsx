@@ -1,8 +1,10 @@
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { BookMeta, listBooks, uploadBook } from '../api/client'
+import ProfileMenu from '../components/ProfileMenu'
 import Spinner from '../components/Spinner'
-import { loadProgress } from '../lib/progress'
+import { useProfile } from '../lib/profiles'
+import { listProgress } from '../lib/progress'
 
 // Muted book-cloth colours; chosen deterministically per book.
 const SPINE_COLORS = [
@@ -27,6 +29,7 @@ export default function Library() {
   const [error, setError] = useState<string | null>(null)
   const fileInput = useRef<HTMLInputElement>(null)
   const navigate = useNavigate()
+  const { active } = useProfile()
 
   useEffect(() => {
     listBooks()
@@ -51,7 +54,14 @@ export default function Library() {
     }
   }
 
-  const progress = loadProgress()
+  // Per-profile reading progress for bookmark ribbons + the "continue" row.
+  const progress = new Map(listProgress(active.id).map((p) => [p.bookId, p]))
+  const byId = new Map(books.map((b) => [b.id, b]))
+  const continueList = listProgress(active.id)
+    .filter((p) => p.page > 1 && byId.has(p.bookId))
+    .sort((a, b) => b.at - a.at)
+    .slice(0, 4)
+    .map((p) => ({ ...p, book: byId.get(p.bookId)! }))
 
   // Split books into shelves; always render at least one (possibly empty) shelf.
   const shelves: BookMeta[][] = []
@@ -74,18 +84,21 @@ export default function Library() {
 
   return (
     <div className="mx-auto max-w-5xl px-5 py-10">
-      <header className="mb-8 flex items-end justify-between">
+      <header className="mb-8 flex items-end justify-between gap-3">
         <div>
           <h1 className="font-serif text-4xl font-bold tracking-tight">Mirabook</h1>
           <p className="mt-1 text-stone-500">Your shelf of books to read in two languages.</p>
         </div>
-        <button
-          onClick={() => fileInput.current?.click()}
-          disabled={uploading}
-          className="rounded-lg bg-stone-800 px-4 py-2 text-sm font-medium text-white hover:bg-stone-700 disabled:opacity-50"
-        >
-          {uploading ? 'Ingesting…' : 'Upload PDF'}
-        </button>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => fileInput.current?.click()}
+            disabled={uploading}
+            className="rounded-lg bg-stone-800 px-4 py-2 text-sm font-medium text-white hover:bg-stone-700 disabled:opacity-50"
+          >
+            {uploading ? 'Ingesting…' : 'Upload PDF'}
+          </button>
+          <ProfileMenu />
+        </div>
         <input
           ref={fileInput}
           type="file"
@@ -94,6 +107,34 @@ export default function Library() {
           onChange={onFile}
         />
       </header>
+
+      {continueList.length > 0 && (
+        <section className="mb-8">
+          <h2 className="mb-3 text-xs font-semibold uppercase tracking-wide text-stone-400">
+            Continue reading
+          </h2>
+          <div className="flex flex-wrap gap-3">
+            {continueList.map(({ book, page }) => {
+              const pct = Math.round((page / book.page_count) * 100)
+              return (
+                <button
+                  key={book.id}
+                  onClick={() => navigate(`/read/${book.id}`)}
+                  className="w-56 rounded-xl border border-stone-200 bg-white p-3 text-left shadow-sm transition hover:border-stone-300 hover:shadow"
+                >
+                  <div className="truncate font-serif font-semibold">{book.title}</div>
+                  <div className="mt-1 text-xs text-stone-500">
+                    Page {page} of {book.page_count}
+                  </div>
+                  <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-stone-100">
+                    <div className="h-full rounded-full bg-stone-700" style={{ width: `${pct}%` }} />
+                  </div>
+                </button>
+              )
+            })}
+          </div>
+        </section>
+      )}
 
       {error && (
         <div className="mb-4 rounded-md bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>
@@ -112,7 +153,7 @@ export default function Library() {
             <div key={si}>
               <div className="shelf">
                 {shelf.map((b) => {
-                  const saved = progress[b.id]
+                  const saved = progress.get(b.id)?.page
                   const bookmarked = !!saved && saved > 1
                   return (
                     <button
