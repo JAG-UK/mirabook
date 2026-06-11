@@ -1,0 +1,26 @@
+# Mirabook dev stack. The backend talks to Ollama running on the host machine
+# (host.docker.internal). For a fully self-hosted "capable hardware" deploy you
+# can add an `ollama` service here and point MIRABOOK_OLLAMA_HOST at it.
+services:
+  backend:
+    build: ./backend
+    ports:
+      - "8000:8000"
+    environment:
+      MIRABOOK_PROVIDER: ollama
+      MIRABOOK_OLLAMA_HOST: http://host.docker.internal:11434
+      MIRABOOK_OLLAMA_MODEL: translategemma:4b
+      MIRABOOK_DATA_DIR: /data
+    volumes:
+      - ./backend/data:/data
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  frontend:
+    build: ./frontend
+    ports:
+      - "5173:5173"
+    environment:
+      VITE_API_BASE: http://localhost:8000
+    depends_on:
+      - backend
