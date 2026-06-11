@@ -212,13 +212,17 @@ export default function Reader() {
     )
   }
 
-  // Slide/fade animate the whole content; flip uses a separate page-turn leaf.
+  // Slide/fade animate the whole content; flip uses a separate page-turn leaf
+  // plus a delayed reveal so the new text only appears once the leaf passes
+  // the centre of the book.
   const wrapperAnim =
     settings.animation === 'slide'
       ? `pt-slide-${dir}`
       : settings.animation === 'fade'
         ? 'pt-fade'
-        : ''
+        : settings.animation === 'flip'
+          ? 'pt-reveal'
+          : ''
 
   return (
     <div className="reader-root min-h-full" data-theme={settings.theme} data-font={settings.font}>

@@ -321,6 +321,24 @@ body {
   animation: ptSlidePrev 0.3s ease both;
 }
 
+/* Hold the new page hidden until the turning leaf has swept past the centre
+   (~halfway through the leaf animation), then fade it in. */
+@keyframes ptReveal {
+  0%,
+  50% {
+    opacity: 0;
+  }
+  72% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 1;
+  }
+}
+.pt-reveal {
+  animation: ptReveal 0.6s ease both;
+}
+
 /* Page-turn leaf: a single paper leaf that sweeps from the spine, so the new
    page is already in place underneath while the old leaf turns away. */
 .page-leaf {
