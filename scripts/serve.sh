@@ -56,7 +56,23 @@ BACK=$!
 cleanup() { kill "$BACK" 2>/dev/null || true; [ -n "${TUN:-}" ] && kill "$TUN" 2>/dev/null || true; }
 trap cleanup EXIT INT TERM
 
-until curl -sf "http://localhost:$PORT/api/health" >/dev/null 2>&1; do sleep 1; done
+# Wait for the backend. Pass Basic-auth creds to the probe so it isn't rejected
+# by the very auth we just enabled.
+HEALTH_AUTH=()
+[ -n "${MIRABOOK_BASIC_AUTH:-}" ] && HEALTH_AUTH=(-u "$MIRABOOK_BASIC_AUTH")
+for _ in $(seq 1 60); do
+  if curl -sf "${HEALTH_AUTH[@]}" "http://localhost:$PORT/api/health" >/dev/null 2>&1; then
+    READY=1
+    break
+  fi
+  kill -0 "$BACK" 2>/dev/null || { echo "Backend process exited — see the log above."; exit 1; }
+  sleep 1
+done
+if [ -z "${READY:-}" ]; then
+  echo "Backend did not become healthy in time. If MIRABOOK_BASIC_AUTH is set,"
+  echo "make sure it is exported in this shell (export MIRABOOK_BASIC_AUTH=user:pass)."
+  exit 1
+fi
 bold "Backend up at http://localhost:$PORT"
 
 # --- expose on the internet ---
