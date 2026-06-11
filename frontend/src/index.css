@@ -19,3 +19,76 @@ body {
   cursor: pointer;
   transition: filter 0.15s ease;
 }
+
+/* --- Open-book reading surface --- */
+
+/* The "desk" the book rests on: a warm neutral with a soft top light. */
+.reader-desk {
+  background:
+    radial-gradient(1100px 460px at 50% -8%, rgba(255, 255, 255, 0.55), transparent 70%),
+    radial-gradient(1400px 700px at 50% 120%, rgba(70, 55, 35, 0.06), transparent 70%),
+    #e9e3d7;
+}
+
+/* A single sheet of warm ivory paper, floating with a soft shadow. */
+.book-surface {
+  position: relative;
+  background-color: #f8f4ea;
+  /* faint vertical fiber/vignette toward the outer edges */
+  background-image: linear-gradient(
+    to right,
+    rgba(70, 55, 30, 0.05),
+    transparent 6%,
+    transparent 94%,
+    rgba(70, 55, 30, 0.05)
+  );
+  border: 1px solid rgba(120, 100, 65, 0.14);
+  border-radius: 10px;
+  box-shadow:
+    0 22px 48px -18px rgba(45, 33, 15, 0.32),
+    0 6px 14px -8px rgba(45, 33, 15, 0.2);
+}
+
+/* On wider screens, render it as two facing pages with a center gutter. */
+@media (min-width: 768px) {
+  .book-surface {
+    background-image:
+      linear-gradient(
+        to right,
+        rgba(70, 55, 30, 0.05),
+        transparent 6%,
+        transparent 94%,
+        rgba(70, 55, 30, 0.05)
+      ),
+      /* the spine: shadow falling away from the center fold on both pages */
+        linear-gradient(
+          to right,
+          transparent 46%,
+          rgba(60, 45, 22, 0.07) 49%,
+          rgba(60, 45, 22, 0.16) 49.9%,
+          rgba(40, 28, 12, 0.22) 50%,
+          rgba(60, 45, 22, 0.16) 50.1%,
+          rgba(60, 45, 22, 0.07) 51%,
+          transparent 54%
+        );
+  }
+
+  /* a 1px highlight right on the fold, as if it catches the light */
+  .book-surface::after {
+    content: '';
+    position: absolute;
+    top: 6%;
+    bottom: 6%;
+    left: 50%;
+    width: 1px;
+    transform: translateX(-0.5px);
+    background: linear-gradient(
+      to bottom,
+      transparent,
+      rgba(255, 251, 240, 0.7) 12%,
+      rgba(255, 251, 240, 0.7) 88%,
+      transparent
+    );
+    pointer-events: none;
+  }
+}

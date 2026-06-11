@@ -209,39 +209,41 @@ export default function Reader() {
         </div>
       </header>
 
-      {/* Column labels (desktop) */}
-      <div className="mx-auto hidden max-w-5xl grid-cols-2 gap-x-8 px-4 pt-4 text-xs font-semibold uppercase tracking-wide text-stone-400 md:grid">
-        <div>{meta?.source_lang ?? 'Original'}</div>
-        <div>{meta?.target_lang ?? 'Translation'}</div>
-      </div>
+      {/* Page body — styled as an open book resting on a desk */}
+      <main className="reader-desk min-h-full px-3 py-6 md:px-6 md:py-10">
+        <div className="book-surface mx-auto max-w-5xl px-6 py-8 md:px-12 md:py-12">
+          {/* running heads */}
+          <div className="mb-5 hidden grid-cols-2 gap-x-16 border-b border-stone-300/60 pb-2 text-[11px] font-semibold uppercase tracking-widest text-stone-400 md:grid">
+            <div>{meta?.source_lang ?? 'Original'}</div>
+            <div>{meta?.target_lang ?? 'Translation'}</div>
+          </div>
 
-      {/* Page body */}
-      <main className="mx-auto max-w-5xl px-4 py-4">
-        {loading ? (
-          <div className="py-20">
-            <Spinner label="Translating this page…" />
-            <p className="mt-2 text-sm text-stone-400">
-              First visit to a page runs the model; it’s cached after that.
-            </p>
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 gap-x-8 gap-y-1 md:grid-cols-2">
-            {data?.blocks.map((b) => (
-              <BlockRow
-                key={b.id}
-                block={b}
-                translation={transMap.get(b.id)}
-                blurEnabled={blurEnabled}
-                revealed={revealed.has(b.id)}
-                hovered={hoveredId === b.id}
-                onHover={setHoveredId}
-                onReveal={(id) => setRevealed((s) => new Set(s).add(id))}
-                onSourceMouseUp={handleSourceMouseUp}
-                onAlternatives={handleAlternatives}
-              />
-            ))}
-          </div>
-        )}
+          {loading ? (
+            <div className="py-20">
+              <Spinner label="Translating this page…" />
+              <p className="mt-2 text-sm text-stone-400">
+                First visit to a page runs the model; it’s cached after that.
+              </p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 gap-x-8 gap-y-1 md:grid-cols-2 md:gap-x-16">
+              {data?.blocks.map((b) => (
+                <BlockRow
+                  key={b.id}
+                  block={b}
+                  translation={transMap.get(b.id)}
+                  blurEnabled={blurEnabled}
+                  revealed={revealed.has(b.id)}
+                  hovered={hoveredId === b.id}
+                  onHover={setHoveredId}
+                  onReveal={(id) => setRevealed((s) => new Set(s).add(id))}
+                  onSourceMouseUp={handleSourceMouseUp}
+                  onAlternatives={handleAlternatives}
+                />
+              ))}
+            </div>
+          )}
+        </div>
       </main>
 
       {sel && (
