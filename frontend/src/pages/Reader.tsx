@@ -45,6 +45,8 @@ export default function Reader() {
   const [sel, setSel] = useState<SelectionState | null>(null)
   const [popover, setPopover] = useState<PopoverState | null>(null)
   const [tocOpen, setTocOpen] = useState(false)
+  const [leafKey, setLeafKey] = useState(0) // bump to replay the page-turn leaf
+  const firstPageRef = useRef(true)
 
   const cache = useRef<Map<number, PageData>>(new Map())
 
@@ -62,6 +64,16 @@ export default function Reader() {
   useEffect(() => {
     if (meta) saveProgress(active.id, bookId, page)
   }, [active.id, bookId, page, meta])
+
+  // Replay the page-turn leaf on each turn (flip animation only).
+  useEffect(() => {
+    if (firstPageRef.current) {
+      firstPageRef.current = false
+      return
+    }
+    if (settings.animation === 'flip') setLeafKey((k) => k + 1)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [page])
 
   const ensurePage = useCallback(
     async (n: number): Promise<PageData> => {
@@ -200,12 +212,13 @@ export default function Reader() {
     )
   }
 
-  const animClass =
-    settings.animation === 'none'
-      ? ''
+  // Slide/fade animate the whole content; flip uses a separate page-turn leaf.
+  const wrapperAnim =
+    settings.animation === 'slide'
+      ? `pt-slide-${dir}`
       : settings.animation === 'fade'
         ? 'pt-fade'
-        : `pt-${settings.animation}-${dir}`
+        : ''
 
   return (
     <div className="reader-root min-h-full" data-theme={settings.theme} data-font={settings.font}>
@@ -291,8 +304,13 @@ export default function Reader() {
             <div>{meta?.target_lang ?? 'Translation'}</div>
           </div>
 
-          {/* keyed by page so each turn replays the chosen animation */}
-          <div key={page} className={`flex flex-1 flex-col ${animClass}`}>
+          {/* a single page-leaf that sweeps from the spine (flip animation) */}
+          {settings.animation === 'flip' && leafKey > 0 && (
+            <div key={leafKey} className={`page-leaf ${dir === 'next' ? 'leaf-next' : 'leaf-prev'}`} aria-hidden />
+          )}
+
+          {/* keyed by page so each turn replays slide/fade */}
+          <div key={page} className={`flex flex-1 flex-col ${wrapperAnim}`}>
             {loading ? (
               <div className="py-20">
                 <Spinner label="Translating this page…" />
