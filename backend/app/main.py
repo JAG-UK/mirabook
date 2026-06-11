@@ -1,8 +1,11 @@
+import base64
+import secrets
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 from app.api.routes import router
@@ -30,11 +33,46 @@ def create_app() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+
+    # Optional HTTP Basic auth — recommended when exposing over the internet.
+    if s.basic_auth:
+        expected = s.basic_auth
+
+        @app.middleware("http")
+        async def basic_auth(request: Request, call_next):
+            header = request.headers.get("authorization", "")
+            if header.startswith("Basic "):
+                try:
+                    decoded = base64.b64decode(header[6:]).decode()
+                except Exception:
+                    decoded = ""
+                if secrets.compare_digest(decoded, expected):
+                    return await call_next(request)
+            return Response(
+                status_code=401,
+                headers={"WWW-Authenticate": 'Basic realm="Mirabook"'},
+            )
+
     app.include_router(router, prefix="/api")
 
     media_dir = Path(s.data_dir) / "media"
     media_dir.mkdir(parents=True, exist_ok=True)
     app.mount("/media", StaticFiles(directory=media_dir), name="media")
+
+    # Optionally serve the built frontend (single-origin production deploy).
+    if s.static_dir:
+        static = Path(s.static_dir)
+        if static.is_dir():
+
+            @app.get("/{full_path:path}")
+            async def spa(full_path: str):
+                if full_path.startswith(("api/", "media/")):
+                    return Response(status_code=404)
+                candidate = static / full_path
+                if full_path and candidate.is_file():
+                    return FileResponse(candidate)
+                return FileResponse(static / "index.html")
+
     return app
 
 

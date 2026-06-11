@@ -68,3 +68,38 @@ All settings are environment variables prefixed `MIRABOOK_` (see
 | GET  | `/api/books/{id}/pages/{n}` | source blocks + translations (cached) |
 | POST | `/api/explain` | grammar/idiom explanation for a selection |
 | POST | `/api/alternatives` | multiple translation options for a selection |
+| POST | `/api/books/{id}/translate` | batch-translate pages (used by offline download) |
+
+## Running on a GPU server
+
+Ollama auto-detects the GPU (CUDA) — **no code changes are needed**. Just run
+Ollama on the GPU box and point Mirabook at a strong general model that handles
+both translation and the grammar/idiom/alternatives features. On a 32 GB card
+(e.g. RTX 5090), `gemma2:27b` is a good pick and runs fully on the GPU:
+
+```bash
+ollama pull gemma2:27b
+export MIRABOOK_OLLAMA_MODEL=gemma2:27b
+# raise parallelism on a big GPU (and set OLLAMA_NUM_PARALLEL on the server)
+export MIRABOOK_OLLAMA_CONCURRENCY=4
+```
+
+Switching models re-translates each page once (the cache is keyed per model).
+`backend/scripts/reingest.py` and the in-app "Download for offline" flow are
+handy ways to pre-translate whole books on the fast GPU.
+
+## Serving over the internet
+
+`scripts/serve.sh` builds the frontend, serves the whole app (SPA + API + media)
+from the backend on one port, and opens a public **Cloudflare quick tunnel**:
+
+```bash
+# strongly recommended: protect the public URL
+export MIRABOOK_BASIC_AUTH=reader:your-strong-password
+./scripts/serve.sh        # prints an https://….trycloudflare.com URL
+```
+
+The backend has no built-in accounts, so set `MIRABOOK_BASIC_AUTH` (HTTP Basic on
+every route) before exposing it publicly, or front it with Cloudflare Access /
+your own reverse proxy. For single-origin serving without a tunnel, set
+`MIRABOOK_STATIC_DIR=../frontend/dist` and run uvicorn yourself.

@@ -16,11 +16,12 @@ class OllamaProvider(TranslationProvider):
     """Talks to a local (or remote) Ollama server via its /api/chat endpoint."""
 
     name = "ollama"
-    max_concurrency = 4  # local model — keep the request fan-out modest
 
-    def __init__(self, host: str, model: str):
+    def __init__(self, host: str, model: str, concurrency: int = 4, timeout: int = 180):
         self._host = host.rstrip("/")
         self._model = model
+        self.max_concurrency = concurrency  # configurable for bigger GPUs
+        self._timeout = timeout
 
     @property
     def model_id(self) -> str:
@@ -38,7 +39,7 @@ class OllamaProvider(TranslationProvider):
         }
         if as_json:
             payload["format"] = "json"
-        async with httpx.AsyncClient(timeout=180) as client:
+        async with httpx.AsyncClient(timeout=self._timeout) as client:
             r = await client.post(f"{self._host}/api/chat", json=payload)
             r.raise_for_status()
             return r.json()["message"]["content"].strip()

@@ -19,6 +19,12 @@ class Settings(BaseSettings):
     # Ollama
     ollama_host: str = "http://localhost:11434"
     ollama_model: str = "translategemma:4b"
+    ollama_concurrency: int = 4  # parallel block translations (raise on big GPUs)
+    ollama_timeout: int = 180  # per-request timeout, seconds
+
+    # Production / internet serving
+    static_dir: str | None = None  # if set, the backend also serves the built SPA
+    basic_auth: str | None = None  # "user:pass" → require HTTP Basic on every route
 
     # Anthropic (only used when provider == "anthropic")
     anthropic_api_key: str | None = None

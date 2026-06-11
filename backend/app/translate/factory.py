@@ -11,7 +11,9 @@ def get_provider() -> TranslationProvider:
     their SDKs are only required when actually selected."""
     s = get_settings()
     if s.provider == "ollama":
-        return OllamaProvider(s.ollama_host, s.ollama_model)
+        return OllamaProvider(
+            s.ollama_host, s.ollama_model, s.ollama_concurrency, s.ollama_timeout
+        )
     if s.provider == "anthropic":
         from app.translate.anthropic import AnthropicProvider
 
