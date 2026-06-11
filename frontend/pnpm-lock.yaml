@@ -8,6 +8,9 @@ importers:
 
   .:
     dependencies:
+      idb:
+        specifier: ^8.0.3
+        version: 8.0.3
       react:
         specifier: ^18.3.1
         version: 18.3.1
@@ -680,6 +683,9 @@ packages:
 
   html-url-attributes@3.0.1:
     resolution: {integrity: sha512-ol6UPyBWqsrO6EJySPz2O7ZSr856WDrEzM5zMqp+FJJLGMW35cLYmmZnl0vztAZxRUoNZJFTCohfjuIJ8I4QBQ==}
+
+  idb@8.0.3:
+    resolution: {integrity: sha512-LtwtVyVYO5BqRvcsKuB2iUMnHwPVByPCXFXOpuU96IZPPoPN6xjOGxZQ74pgSVVLQWtUOYgyeL4GE98BY5D3wg==}
 
   inline-style-parser@0.2.7:
     resolution: {integrity: sha512-Nb2ctOyNR8DqQoR0OwRG95uNWIC0C1lCgf5Naz5H6Ji72KZ8OcFZLz2P5sNgwlyoJ8Yif11oMuYs5pBQa86csA==}
@@ -1762,6 +1768,8 @@ snapshots:
       '@types/hast': 3.0.4
 
   html-url-attributes@3.0.1: {}
+
+  idb@8.0.3: {}
 
   inline-style-parser@0.2.7: {}
 

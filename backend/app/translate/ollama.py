@@ -2,7 +2,7 @@ import json
 
 import httpx
 
-from app.models import Alternative, Block, BlockType, Explanation, TranslatedBlock
+from app.models import Alternative, Explanation
 from app.translate.base import (
     ALTERNATIVES_SYSTEM,
     EXPLAIN_GRAMMAR_SYSTEM,
@@ -16,6 +16,7 @@ class OllamaProvider(TranslationProvider):
     """Talks to a local (or remote) Ollama server via its /api/chat endpoint."""
 
     name = "ollama"
+    max_concurrency = 4  # local model — keep the request fan-out modest
 
     def __init__(self, host: str, model: str):
         self._host = host.rstrip("/")
@@ -42,18 +43,8 @@ class OllamaProvider(TranslationProvider):
             r.raise_for_status()
             return r.json()["message"]["content"].strip()
 
-    async def translate(
-        self, blocks: list[Block], src: str, tgt: str
-    ) -> list[TranslatedBlock]:
-        system = TRANSLATE_SYSTEM.format(src=src, tgt=tgt)
-        out: list[TranslatedBlock] = []
-        for b in blocks:
-            if b.type == BlockType.image or not b.text.strip():
-                out.append(TranslatedBlock(id=b.id, text=""))
-                continue
-            text = await self._chat(system, b.text)
-            out.append(TranslatedBlock(id=b.id, text=text))
-        return out
+    async def _translate_text(self, text: str, src: str, tgt: str) -> str:
+        return await self._chat(TRANSLATE_SYSTEM.format(src=src, tgt=tgt), text)
 
     async def explain(
         self, text: str, context: str, kind: str, src: str, tgt: str

@@ -11,6 +11,7 @@ import {
   explain,
   getBook,
   getPage,
+  mediaUrl,
 } from '../api/client'
 import BlockRow from '../components/BlockRow'
 import ChapterDrawer from '../components/ChapterDrawer'
@@ -20,6 +21,7 @@ import SelectionMenu, { SelectionState } from '../components/SelectionMenu'
 import Spinner from '../components/Spinner'
 import { getProgress, saveProgress } from '../lib/progress'
 import { useProfile } from '../lib/profiles'
+import { OfflineBook, getOfflineBook } from '../lib/offline'
 import { addWord } from '../lib/vocab'
 
 interface PopoverState {
@@ -51,16 +53,41 @@ export default function Reader() {
   const firstPageRef = useRef(true)
 
   const cache = useRef<Map<number, PageData>>(new Map())
+  const offlineRef = useRef<OfflineBook | undefined>(undefined)
+  const offlineModeRef = useRef(false)
+  const [servingOffline, setServingOffline] = useState(false)
 
+  const goOffline = useCallback(() => {
+    offlineModeRef.current = true
+    setServingOffline(true)
+  }, [])
+
+  // Load metadata. If the backend is unreachable, fall back to a downloaded copy.
   useEffect(() => {
-    getBook(bookId)
-      .then((m) => {
+    let cancelled = false
+    ;(async () => {
+      offlineRef.current = await getOfflineBook(bookId)
+      try {
+        const m = await getBook(bookId)
+        if (cancelled) return
         setMeta(m)
-        // Clamp a resumed page that's now out of range.
         setPage((p) => Math.min(Math.max(1, p), m.page_count))
-      })
-      .catch((e) => setError(String(e)))
-  }, [bookId])
+      } catch (e) {
+        if (cancelled) return
+        const rec = offlineRef.current
+        if (rec) {
+          goOffline()
+          setMeta(rec.meta)
+          setPage((p) => Math.min(Math.max(1, p), rec.meta.page_count))
+        } else {
+          setError(String(e))
+        }
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [bookId, goOffline])
 
   // Remember the page (bookmark) for this profile whenever it changes.
   useEffect(() => {
@@ -77,16 +104,52 @@ export default function Reader() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [page])
 
+  const localPage = (n: number): PageData =>
+    offlineRef.current?.pages.find((p) => p.number === n) ?? {
+      number: n,
+      blocks: [],
+      translations: [],
+    }
+
   const ensurePage = useCallback(
     async (n: number): Promise<PageData> => {
       const hit = cache.current.get(n)
       if (hit) return hit
-      const d = await getPage(bookId, n)
-      cache.current.set(n, d)
-      return d
+      if (offlineModeRef.current) {
+        const pd = localPage(n)
+        cache.current.set(n, pd)
+        return pd
+      }
+      try {
+        const d = await getPage(bookId, n)
+        cache.current.set(n, d)
+        return d
+      } catch (e) {
+        // Backend went away mid-session — serve from a downloaded copy if we have one.
+        if (offlineRef.current) {
+          goOffline()
+          const pd = localPage(n)
+          cache.current.set(n, pd)
+          return pd
+        }
+        throw e
+      }
     },
-    [bookId],
+    [bookId, goOffline],
   )
+
+  // When offline, resolve image src paths to cached blob URLs.
+  const blobUrls = useMemo(() => {
+    const m: Record<string, string> = {}
+    if (servingOffline && offlineRef.current) {
+      for (const [src, blob] of Object.entries(offlineRef.current.images)) {
+        m[src] = URL.createObjectURL(blob)
+      }
+    }
+    return m
+  }, [servingOffline])
+  useEffect(() => () => Object.values(blobUrls).forEach(URL.revokeObjectURL), [blobUrls])
+  const imageSrc = useCallback((src: string) => blobUrls[src] ?? mediaUrl(src), [blobUrls])
 
   // Load the current page, then prefetch the next one.
   useEffect(() => {
@@ -157,6 +220,7 @@ export default function Reader() {
   )
 
   function handleSourceMouseUp(block: Block) {
+    if (offlineModeRef.current) return // explanations need the backend
     const s = window.getSelection()
     const text = s?.toString().trim() ?? ''
     if (!text || s!.rangeCount === 0) {
@@ -253,6 +317,11 @@ export default function Reader() {
               <span className="hidden sm:inline">Chapters</span>
             </button>
           )}
+          {servingOffline && (
+            <span className="shrink-0 rounded bg-amber-100 px-1.5 py-0.5 text-[11px] font-medium text-amber-800">
+              Offline
+            </span>
+          )}
           {currentChapter && (
             <span
               className="hidden min-w-0 truncate text-sm text-[color:var(--muted)] lg:inline"
@@ -343,6 +412,7 @@ export default function Reader() {
                     onHover={setHoveredId}
                     onSourceMouseUp={handleSourceMouseUp}
                     onAlternatives={handleAlternatives}
+                    imageSrc={imageSrc}
                   />
                 ))}
               </div>

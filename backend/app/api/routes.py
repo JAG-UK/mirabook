@@ -109,6 +109,44 @@ async def get_page(req: Request, book_id: str, page: int):
     return Page(number=page, blocks=blocks, translations=translations)
 
 
+class TranslatePagesRequest(BaseModel):
+    pages: list[int]
+
+
+@router.post("/books/{book_id}/translate", response_model=list[Page])
+async def translate_pages(req: Request, book_id: str, body: TranslatePagesRequest):
+    """Translate several pages in one request (used by 'download for offline').
+    Uncached blocks across the whole request are translated concurrently."""
+    store = _store(req)
+    meta = store.get_book(book_id)
+    if not meta:
+        raise HTTPException(404, "Book not found")
+    provider = get_provider()
+
+    page_blocks = {n: store.get_page(book_id, n) for n in body.pages}
+    translatable = [
+        b
+        for blocks in page_blocks.values()
+        for b in blocks
+        if b.type != BlockType.image and b.text.strip()
+    ]
+    cached = store.get_cached(book_id, [b.id for b in translatable], provider.model_id)
+    missing = [b for b in translatable if b.id not in cached]
+    if missing:
+        fresh = await provider.translate(missing, meta.source_lang, meta.target_lang)
+        store.save_translations(book_id, provider.model_id, fresh)
+        cached.update({t.id: t for t in fresh})
+
+    return [
+        Page(
+            number=n,
+            blocks=page_blocks[n],
+            translations=[cached[b.id] for b in page_blocks[n] if b.id in cached],
+        )
+        for n in body.pages
+    ]
+
+
 class ExplainRequest(BaseModel):
     text: str
     context: str = ""

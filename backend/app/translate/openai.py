@@ -1,6 +1,6 @@
 import json
 
-from app.models import Alternative, Block, BlockType, Explanation, TranslatedBlock
+from app.models import Alternative, Explanation
 from app.translate.base import (
     ALTERNATIVES_SYSTEM,
     EXPLAIN_GRAMMAR_SYSTEM,
@@ -43,17 +43,8 @@ class OpenAIProvider(TranslationProvider):
         )
         return (r.choices[0].message.content or "").strip()
 
-    async def translate(
-        self, blocks: list[Block], src: str, tgt: str
-    ) -> list[TranslatedBlock]:
-        system = TRANSLATE_SYSTEM.format(src=src, tgt=tgt)
-        out: list[TranslatedBlock] = []
-        for b in blocks:
-            if b.type == BlockType.image or not b.text.strip():
-                out.append(TranslatedBlock(id=b.id, text=""))
-                continue
-            out.append(TranslatedBlock(id=b.id, text=await self._chat(system, b.text)))
-        return out
+    async def _translate_text(self, text: str, src: str, tgt: str) -> str:
+        return await self._chat(TRANSLATE_SYSTEM.format(src=src, tgt=tgt), text)
 
     async def explain(
         self, text: str, context: str, kind: str, src: str, tgt: str

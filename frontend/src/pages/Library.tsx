@@ -1,10 +1,21 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { BookMeta, listBooks, uploadBook } from '../api/client'
 import ProfileMenu from '../components/ProfileMenu'
 import Spinner from '../components/Spinner'
 import { useProfile } from '../lib/profiles'
 import { listProgress } from '../lib/progress'
+import {
+  DownloadIndex,
+  DownloadProgress,
+  cacheLibrary,
+  deleteOfflineBook,
+  downloadBook,
+  formatBytes,
+  getCachedLibrary,
+  getDownloadIndex,
+} from '../lib/offline'
+import { useOnline } from '../lib/useOnline'
 
 // Muted book-cloth colours; chosen deterministically per book.
 const SPINE_COLORS = [
@@ -25,18 +36,34 @@ const spineWidth = (id: string) => 50 + (hash(id + 'w') % 18) // 50–67px
 export default function Library() {
   const [books, setBooks] = useState<BookMeta[]>([])
   const [loading, setLoading] = useState(true)
+  const [reachable, setReachable] = useState(true) // backend reachable?
   const [uploading, setUploading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [downloads, setDownloads] = useState<DownloadIndex>({})
+  const [progress, setProgress] = useState<Record<string, DownloadProgress>>({})
   const fileInput = useRef<HTMLInputElement>(null)
   const navigate = useNavigate()
   const { active } = useProfile()
+  const online = useOnline()
+
+  const load = useCallback(async () => {
+    setDownloads(await getDownloadIndex())
+    try {
+      const b = await listBooks()
+      setBooks(b)
+      setReachable(true)
+      cacheLibrary(b)
+    } catch {
+      setBooks(await getCachedLibrary())
+      setReachable(false)
+    } finally {
+      setLoading(false)
+    }
+  }, [])
 
   useEffect(() => {
-    listBooks()
-      .then(setBooks)
-      .catch((e) => setError(String(e)))
-      .finally(() => setLoading(false))
-  }, [])
+    load()
+  }, [load, online])
 
   async function onFile(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
@@ -54,20 +81,39 @@ export default function Library() {
     }
   }
 
-  // Per-profile reading progress for bookmark ribbons + the "continue" row.
-  const progress = new Map(listProgress(active.id).map((p) => [p.bookId, p]))
+  async function startDownload(meta: BookMeta) {
+    setProgress((p) => ({ ...p, [meta.id]: { done: 0, total: meta.page_count, label: 'Starting' } }))
+    try {
+      await downloadBook(meta, (pr) => setProgress((p) => ({ ...p, [meta.id]: pr })))
+      setDownloads(await getDownloadIndex())
+    } catch (err) {
+      setError(`Download failed: ${err}`)
+    } finally {
+      setProgress((p) => {
+        const { [meta.id]: _, ...rest } = p
+        return rest
+      })
+    }
+  }
+
+  async function removeDownload(meta: BookMeta) {
+    if (!confirm(`Remove the offline copy of “${meta.title}”?`)) return
+    await deleteOfflineBook(meta.id)
+    setDownloads(await getDownloadIndex())
+  }
+
+  const progressMap = new Map(listProgress(active.id).map((p) => [p.bookId, p]))
+  const isAvailable = (id: string) => reachable || id in downloads
+
   const byId = new Map(books.map((b) => [b.id, b]))
   const continueList = listProgress(active.id)
-    .filter((p) => p.page > 1 && byId.has(p.bookId))
+    .filter((p) => p.page > 1 && byId.has(p.bookId) && isAvailable(p.bookId))
     .sort((a, b) => b.at - a.at)
     .slice(0, 4)
     .map((p) => ({ ...p, book: byId.get(p.bookId)! }))
 
-  // Split books into shelves; always render at least one (possibly empty) shelf.
   const shelves: BookMeta[][] = []
-  for (let i = 0; i < books.length; i += PER_SHELF) {
-    shelves.push(books.slice(i, i + PER_SHELF))
-  }
+  for (let i = 0; i < books.length; i += PER_SHELF) shelves.push(books.slice(i, i + PER_SHELF))
   if (shelves.length === 0) shelves.push([])
 
   const addSpine = (
@@ -87,13 +133,21 @@ export default function Library() {
       <header className="mb-8 flex items-end justify-between gap-3">
         <div>
           <h1 className="font-serif text-4xl font-bold tracking-tight">Mirabook</h1>
-          <p className="mt-1 text-stone-500">Your shelf of books to read in two languages.</p>
+          <p className="mt-1 text-stone-500">
+            Your shelf of books to read in two languages.
+            {!reachable && (
+              <span className="ml-2 rounded bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800">
+                Offline — showing downloaded books
+              </span>
+            )}
+          </p>
         </div>
         <div className="flex items-center gap-3">
           <button
             onClick={() => fileInput.current?.click()}
-            disabled={uploading}
-            className="rounded-lg bg-stone-800 px-4 py-2 text-sm font-medium text-white hover:bg-stone-700 disabled:opacity-50"
+            disabled={uploading || !reachable}
+            className="rounded-lg bg-stone-800 px-4 py-2 text-sm font-medium text-white hover:bg-stone-700 disabled:opacity-40"
+            title={reachable ? 'Upload a PDF' : 'Connect to upload'}
           >
             {uploading ? 'Ingesting…' : 'Upload PDF'}
           </button>
@@ -107,6 +161,15 @@ export default function Library() {
           onChange={onFile}
         />
       </header>
+
+      {error && (
+        <div className="mb-4 rounded-md bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>
+      )}
+      {uploading && (
+        <div className="mb-4">
+          <Spinner label="Extracting pages and structure…" />
+        </div>
+      )}
 
       {continueList.length > 0 && (
         <section className="mb-8">
@@ -136,15 +199,6 @@ export default function Library() {
         </section>
       )}
 
-      {error && (
-        <div className="mb-4 rounded-md bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>
-      )}
-      {uploading && (
-        <div className="mb-4">
-          <Spinner label="Extracting pages and structure…" />
-        </div>
-      )}
-
       {loading ? (
         <Spinner label="Loading library…" />
       ) : (
@@ -153,33 +207,62 @@ export default function Library() {
             <div key={si}>
               <div className="shelf">
                 {shelf.map((b) => {
-                  const saved = progress.get(b.id)?.page
+                  const saved = progressMap.get(b.id)?.page
                   const bookmarked = !!saved && saved > 1
+                  const downloaded = b.id in downloads
+                  const dl = progress[b.id]
+                  const available = isAvailable(b.id)
                   return (
-                    <button
+                    <div
                       key={b.id}
-                      className="spine"
-                      style={{
-                        background: spineColor(b.id),
-                        height: spineHeight(b.id),
-                        width: spineWidth(b.id),
-                      }}
-                      onClick={() => navigate(`/read/${b.id}`)}
-                      title={
-                        bookmarked
-                          ? `${b.title} — resume on page ${saved} of ${b.page_count}`
-                          : `${b.title} — ${b.source_lang} → ${b.target_lang}, ${b.page_count} pages`
-                      }
+                      className="spine-wrap"
+                      style={{ height: spineHeight(b.id), opacity: available ? 1 : 0.32 }}
                     >
-                      {bookmarked && <span className="bookmark-ribbon" />}
-                      <span className="spine-title">{b.title}</span>
-                    </button>
+                      <button
+                        className="spine"
+                        style={{ background: spineColor(b.id), width: spineWidth(b.id) }}
+                        onClick={() => available && navigate(`/read/${b.id}`)}
+                        disabled={!available}
+                        title={
+                          available
+                            ? bookmarked
+                              ? `${b.title} — resume on page ${saved} of ${b.page_count}`
+                              : `${b.title} — ${b.source_lang} → ${b.target_lang}, ${b.page_count} pages`
+                            : `${b.title} — not available offline`
+                        }
+                      >
+                        {bookmarked && <span className="bookmark-ribbon" />}
+                        <span className="spine-title">{b.title}</span>
+                      </button>
+
+                      <div className="spine-foot" onClick={(e) => e.stopPropagation()}>
+                        {dl ? (
+                          <span title={dl.label}>
+                            {Math.round((dl.done / Math.max(1, dl.total)) * 100)}%
+                          </span>
+                        ) : downloaded ? (
+                          <button
+                            className="done"
+                            onClick={() => removeDownload(b)}
+                            title={`Downloaded (${formatBytes(downloads[b.id].bytes)}) — click to remove`}
+                          >
+                            ✓
+                          </button>
+                        ) : reachable ? (
+                          <button onClick={() => startDownload(b)} title="Download for offline">
+                            ⤓
+                          </button>
+                        ) : null}
+                      </div>
+                    </div>
                   )
                 })}
-                {si === shelves.length - 1 && addSpine}
+                {si === shelves.length - 1 && reachable && addSpine}
                 {books.length === 0 && (
                   <span className="ml-3 self-center text-sm italic text-amber-50/70">
-                    Your shelf is empty — add a Spanish PDF.
+                    {reachable
+                      ? 'Your shelf is empty — add a Spanish PDF.'
+                      : 'No downloaded books to read offline.'}
                   </span>
                 )}
               </div>

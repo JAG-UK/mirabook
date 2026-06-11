@@ -76,6 +76,9 @@ export const getBook = (id: string) => getJSON<BookMeta>(`/api/books/${id}`)
 export const getPage = (id: string, n: number) =>
   getJSON<PageData>(`/api/books/${id}/pages/${n}`)
 
+export const translatePages = (id: string, pages: number[]) =>
+  postJSON<PageData[]>(`/api/books/${id}/translate`, { pages })
+
 export async function uploadBook(file: File): Promise<BookMeta> {
   const form = new FormData()
   form.append('file', file)

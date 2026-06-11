@@ -244,9 +244,20 @@ body {
     inset 0 -2px 3px rgba(0, 0, 0, 0.3);
 }
 
+.spine-wrap {
+  position: relative;
+  display: inline-flex;
+  align-items: flex-end;
+  transition: transform 0.16s ease;
+}
+.spine-wrap:hover {
+  transform: translateY(-10px);
+}
+
 .spine {
   position: relative;
   width: 56px;
+  height: 100%;
   border-radius: 4px 4px 2px 2px;
   padding: 14px 0;
   cursor: pointer;
@@ -258,14 +269,46 @@ body {
     inset -4px 0 7px rgba(0, 0, 0, 0.28),
     inset 4px 0 5px rgba(255, 255, 255, 0.12),
     0 5px 9px -4px rgba(0, 0, 0, 0.45);
-  transition: transform 0.16s ease, box-shadow 0.16s ease;
+  transition: box-shadow 0.16s ease;
 }
-.spine:hover {
-  transform: translateY(-12px);
+.spine:disabled {
+  cursor: default;
+}
+.spine-wrap:hover .spine:not(:disabled) {
   box-shadow:
     inset -4px 0 7px rgba(0, 0, 0, 0.28),
     inset 4px 0 5px rgba(255, 255, 255, 0.12),
     0 16px 22px -8px rgba(0, 0, 0, 0.55);
+}
+
+/* download / delete control at the foot of a spine */
+.spine-foot {
+  position: absolute;
+  bottom: 6px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 3;
+}
+.spine-foot button,
+.spine-foot span {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 4px;
+  border-radius: 9px;
+  font-size: 11px;
+  line-height: 1;
+  color: #f4ead2;
+  background: rgba(0, 0, 0, 0.4);
+  cursor: pointer;
+}
+.spine-foot button:hover {
+  background: rgba(0, 0, 0, 0.62);
+}
+.spine-foot .done {
+  background: #2f7d4f;
 }
 /* hardcover head/tail bands */
 .spine::before,

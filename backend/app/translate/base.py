@@ -1,6 +1,7 @@
+import asyncio
 from abc import ABC, abstractmethod
 
-from app.models import Alternative, Block, Explanation, TranslatedBlock
+from app.models import Alternative, Block, BlockType, Explanation, TranslatedBlock
 
 # Shared prompt fragments so every provider behaves consistently.
 TRANSLATE_SYSTEM = (
@@ -39,15 +40,32 @@ class TranslationProvider(ABC):
     """
 
     name: str
+    # How many blocks to translate concurrently. Local models want a small
+    # number; hosted APIs can take more.
+    max_concurrency: int = 6
 
     @property
     @abstractmethod
     def model_id(self) -> str: ...
 
     @abstractmethod
+    async def _translate_text(self, text: str, src: str, tgt: str) -> str:
+        """Translate a single chunk of source text to the target language."""
+        ...
+
     async def translate(
         self, blocks: list[Block], src: str, tgt: str
-    ) -> list[TranslatedBlock]: ...
+    ) -> list[TranslatedBlock]:
+        """Translate many blocks concurrently (bounded), preserving order."""
+        sem = asyncio.Semaphore(self.max_concurrency)
+
+        async def run(b: Block) -> TranslatedBlock:
+            if b.type == BlockType.image or not b.text.strip():
+                return TranslatedBlock(id=b.id, text="")
+            async with sem:
+                return TranslatedBlock(id=b.id, text=await self._translate_text(b.text, src, tgt))
+
+        return list(await asyncio.gather(*(run(b) for b in blocks)))
 
     @abstractmethod
     async def explain(

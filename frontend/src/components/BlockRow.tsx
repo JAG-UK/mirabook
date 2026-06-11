@@ -20,6 +20,7 @@ interface Props {
   onHover: (id: string | null) => void
   onSourceMouseUp: (block: Block) => void
   onAlternatives: (block: Block, anchor: { x: number; y: number }) => void
+  imageSrc?: (src: string) => string
 }
 
 export default function BlockRow({
@@ -30,13 +31,14 @@ export default function BlockRow({
   onHover,
   onSourceMouseUp,
   onAlternatives,
+  imageSrc = mediaUrl,
 }: Props) {
   // Images are shared between languages — render once, spanning both columns.
   if (block.type === 'image' && block.src) {
     return (
       <figure className="my-4 md:col-span-2">
         <img
-          src={mediaUrl(block.src)}
+          src={imageSrc(block.src)}
           alt=""
           className="mx-auto max-h-[60vh] rounded-md border border-stone-200 shadow-sm"
         />
