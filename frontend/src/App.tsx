@@ -1,10 +1,16 @@
 import { Route, Routes } from 'react-router-dom'
+import ProfileGate from './components/ProfileGate'
+import { useProfileManager } from './lib/profiles'
 import Library from './pages/Library'
 import Reader from './pages/Reader'
 import Settings from './pages/Settings'
 import SavedWords from './pages/SavedWords'
 
 export default function App() {
+  const { active } = useProfileManager()
+  // Until a profile is chosen for this session, show the picker.
+  if (!active) return <ProfileGate />
+
   return (
     <Routes>
       <Route path="/" element={<Library />} />

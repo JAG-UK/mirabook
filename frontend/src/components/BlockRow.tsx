@@ -36,11 +36,11 @@ export default function BlockRow({
   // Images are shared between languages — render once, spanning both columns.
   if (block.type === 'image' && block.src) {
     return (
-      <figure className="my-4 md:col-span-2">
+      <figure className="my-5 flex justify-center md:col-span-2">
         <img
           src={imageSrc(block.src)}
           alt=""
-          className="mx-auto max-h-[60vh] rounded-md border border-stone-200 shadow-sm"
+          className="max-h-[60vh] rounded-lg shadow-[0_14px_30px_-10px_rgba(40,28,12,0.5),0_4px_10px_-4px_rgba(40,28,12,0.3)] ring-1 ring-black/10"
         />
       </figure>
     )

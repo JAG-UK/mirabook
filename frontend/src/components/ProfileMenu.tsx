@@ -5,7 +5,7 @@ import { AVATARS } from '../lib/types'
 import { countWords } from '../lib/vocab'
 
 export default function ProfileMenu() {
-  const { profiles, active, setActive, addProfile } = useProfile()
+  const { profiles, active, setActive, addProfile, signOut } = useProfile()
   const [open, setOpen] = useState(false)
   const navigate = useNavigate()
   const words = countWords(active.id)
@@ -76,6 +76,17 @@ export default function ProfileMenu() {
               className="w-full px-3 py-2 text-left text-sm hover:bg-stone-50"
             >
               Settings
+            </button>
+            <div className="my-1 border-t border-stone-100" />
+            <button
+              onClick={() => {
+                setOpen(false)
+                navigate('/')
+                signOut()
+              }}
+              className="w-full px-3 py-2 text-left text-sm text-stone-500 hover:bg-stone-50"
+            >
+              Switch profile
             </button>
           </div>
         </>

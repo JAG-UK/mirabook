@@ -1,42 +1,34 @@
 import { createContext, ReactNode, useContext, useEffect, useState } from 'react'
-import { AVATARS, DEFAULT_SETTINGS, Profile, Settings } from './types'
+import { DEFAULT_SETTINGS, Profile, Settings } from './types'
 
-const KEY = 'mirabook:profiles'
-
-interface Stored {
-  profiles: Profile[]
-  activeId: string
-}
+// Profiles (the list of "readers") persist in localStorage so they're
+// remembered. The *active selection* lives in sessionStorage and starts empty,
+// so a new visitor is asked to choose rather than landing in someone else's
+// profile. It persists across reloads within a browser session.
+const PROFILES_KEY = 'mirabook:profiles'
+const ACTIVE_KEY = 'mirabook:activeId'
 
 function rid(): string {
   return Math.random().toString(36).slice(2, 9)
 }
 
-function seed(): Stored {
-  const p: Profile = {
-    id: rid(),
-    name: 'Reader',
-    avatar: AVATARS[0],
-    settings: { ...DEFAULT_SETTINGS },
+function loadProfiles(): Profile[] {
+  try {
+    const raw = JSON.parse(localStorage.getItem(PROFILES_KEY) || 'null')
+    // Accept both the new array shape and the older { profiles, activeId } shape.
+    const list: Profile[] = Array.isArray(raw) ? raw : (raw?.profiles ?? [])
+    return list.map((p) => ({ ...p, settings: { ...DEFAULT_SETTINGS, ...p.settings } }))
+  } catch {
+    return []
   }
-  return { profiles: [p], activeId: p.id }
 }
 
-function load(): Stored {
+function loadActiveId(): string | null {
   try {
-    const s = JSON.parse(localStorage.getItem(KEY) || 'null') as Stored | null
-    if (s && s.profiles?.length) {
-      // Backfill any settings keys added in later versions.
-      s.profiles = s.profiles.map((p) => ({
-        ...p,
-        settings: { ...DEFAULT_SETTINGS, ...p.settings },
-      }))
-      return s
-    }
+    return sessionStorage.getItem(ACTIVE_KEY)
   } catch {
-    /* ignore */
+    return null
   }
-  return seed()
 }
 
 interface PatchProfile {
@@ -47,8 +39,9 @@ interface PatchProfile {
 
 interface Ctx {
   profiles: Profile[]
-  active: Profile
+  active: Profile | null
   setActive: (id: string) => void
+  signOut: () => void
   addProfile: (name: string, avatar: string) => Profile
   updateActive: (patch: PatchProfile) => void
   removeProfile: (id: string) => void
@@ -57,19 +50,30 @@ interface Ctx {
 const ProfileContext = createContext<Ctx | null>(null)
 
 export function ProfileProvider({ children }: { children: ReactNode }) {
-  const [state, setState] = useState<Stored>(load)
+  const [profiles, setProfiles] = useState<Profile[]>(loadProfiles)
+  const [activeId, setActiveId] = useState<string | null>(loadActiveId)
 
   useEffect(() => {
     try {
-      localStorage.setItem(KEY, JSON.stringify(state))
+      localStorage.setItem(PROFILES_KEY, JSON.stringify(profiles))
     } catch {
       /* ignore */
     }
-  }, [state])
+  }, [profiles])
 
-  const active = state.profiles.find((p) => p.id === state.activeId) ?? state.profiles[0]
+  useEffect(() => {
+    try {
+      if (activeId) sessionStorage.setItem(ACTIVE_KEY, activeId)
+      else sessionStorage.removeItem(ACTIVE_KEY)
+    } catch {
+      /* ignore */
+    }
+  }, [activeId])
 
-  const setActive = (id: string) => setState((s) => ({ ...s, activeId: id }))
+  const active = profiles.find((p) => p.id === activeId) ?? null
+
+  const setActive = (id: string) => setActiveId(id)
+  const signOut = () => setActiveId(null)
 
   const addProfile = (name: string, avatar: string): Profile => {
     const p: Profile = {
@@ -78,15 +82,15 @@ export function ProfileProvider({ children }: { children: ReactNode }) {
       avatar,
       settings: { ...DEFAULT_SETTINGS },
     }
-    setState((s) => ({ profiles: [...s.profiles, p], activeId: p.id }))
+    setProfiles((ps) => [...ps, p])
+    setActiveId(p.id)
     return p
   }
 
   const updateActive = (patch: PatchProfile) =>
-    setState((s) => ({
-      ...s,
-      profiles: s.profiles.map((p) =>
-        p.id === s.activeId
+    setProfiles((ps) =>
+      ps.map((p) =>
+        p.id === activeId
           ? {
               ...p,
               name: patch.name ?? p.name,
@@ -95,27 +99,32 @@ export function ProfileProvider({ children }: { children: ReactNode }) {
             }
           : p,
       ),
-    }))
+    )
 
-  const removeProfile = (id: string) =>
-    setState((s) => {
-      const profiles = s.profiles.filter((p) => p.id !== id)
-      if (!profiles.length) return seed()
-      const activeId = s.activeId === id ? profiles[0].id : s.activeId
-      return { profiles, activeId }
-    })
+  const removeProfile = (id: string) => {
+    setProfiles((ps) => ps.filter((p) => p.id !== id))
+    if (activeId === id) setActiveId(null)
+  }
 
   return (
     <ProfileContext.Provider
-      value={{ profiles: state.profiles, active, setActive, addProfile, updateActive, removeProfile }}
+      value={{ profiles, active, setActive, signOut, addProfile, updateActive, removeProfile }}
     >
       {children}
     </ProfileContext.Provider>
   )
 }
 
-export function useProfile(): Ctx {
+// Full context (active may be null) — for the picker, the menu, and App's gate.
+export function useProfileManager(): Ctx {
   const c = useContext(ProfileContext)
-  if (!c) throw new Error('useProfile must be used within ProfileProvider')
+  if (!c) throw new Error('useProfileManager must be used within ProfileProvider')
   return c
+}
+
+// For screens that only render once a profile is chosen — `active` is guaranteed.
+export function useProfile(): Omit<Ctx, 'active'> & { active: Profile } {
+  const c = useProfileManager()
+  if (!c.active) throw new Error('useProfile used without an active profile')
+  return { ...c, active: c.active }
 }
