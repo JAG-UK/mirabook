@@ -5,6 +5,7 @@ from app.translate.base import (
     ALTERNATIVES_SYSTEM,
     EXPLAIN_GRAMMAR_SYSTEM,
     EXPLAIN_IDIOM_SYSTEM,
+    PROMPT_VERSION,
     TRANSLATE_SYSTEM,
     TranslationProvider,
 )
@@ -30,7 +31,7 @@ class OpenAIProvider(TranslationProvider):
 
     @property
     def model_id(self) -> str:
-        return f"openai:{self._model}"
+        return f"openai:{self._model}#p{PROMPT_VERSION}"
 
     async def _chat(self, system: str, user: str, *, as_json: bool = False) -> str:
         r = await self._client.chat.completions.create(

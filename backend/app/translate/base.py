@@ -1,14 +1,48 @@
 import asyncio
+import re
 from abc import ABC, abstractmethod
 
 from app.models import Alternative, Block, BlockType, Explanation, TranslatedBlock
 
-# Shared prompt fragments so every provider behaves consistently.
+# Bump when prompts change so cached translations are recomputed (it is part of
+# the per-model cache key). Avoids serving stale output from an older prompt.
+PROMPT_VERSION = "2"
+
+# Shared prompt fragments so every provider behaves consistently. Worded for
+# "helpful" instruct models (gemma2, qwen, …) that otherwise add preambles or
+# refuse degenerate inputs — unlike the pure translategemma model.
 TRANSLATE_SYSTEM = (
-    "You are an expert literary translator. Translate the {src} text into {tgt}. "
-    "Preserve meaning, tone, register and paragraph structure. "
-    "Return ONLY the translated text with no preamble, notes, or quotation marks."
+    "You are a professional {src}-to-{tgt} translation engine. Translate the user's "
+    "{src} text into natural, fluent {tgt}, preserving meaning, tone, register and "
+    "line breaks. Keep proper nouns, names, places and numbers unchanged. "
+    "Output ONLY the {tgt} translation — no preamble, no explanation, no notes, no "
+    "quotation marks. If the text is already {tgt}, or is just a number/symbol/name "
+    "with nothing to translate, repeat it back unchanged."
 )
+
+# Phrases that mean the model commented/refused instead of translating; if the
+# output matches, we fall back to showing the source text.
+_REFUSAL_RE = re.compile(
+    r"please provide|i (cannot|can't|am unable|'m unable|am not able)|as an ai|"
+    r"no text (was )?provid|there is no .* to translate|i need the .* text",
+    re.IGNORECASE,
+)
+# A leading "Here is the translation:" / "Translation:" / "Sure, …:" preamble.
+_PREAMBLE_RE = re.compile(
+    r"^\s*(here(?:'s| is)[^:\n]*:|translation[^:\n]*:|sure[,!][^\n]*:?)\s*",
+    re.IGNORECASE,
+)
+
+
+def clean_translation(out: str, original: str) -> str:
+    """Strip preambles/wrapping quotes; fall back to the source on a refusal."""
+    t = out.strip()
+    t = _PREAMBLE_RE.sub("", t).strip()
+    if len(t) >= 2 and t[0] in "\"'“«`" and t[-1] in "\"'”»`":
+        t = t[1:-1].strip()
+    if not t or _REFUSAL_RE.search(t):
+        return original
+    return t
 
 EXPLAIN_GRAMMAR_SYSTEM = (
     "You are a patient {src} language tutor. The learner highlighted a phrase while "
@@ -63,7 +97,8 @@ class TranslationProvider(ABC):
             if b.type == BlockType.image or not b.text.strip():
                 return TranslatedBlock(id=b.id, text="")
             async with sem:
-                return TranslatedBlock(id=b.id, text=await self._translate_text(b.text, src, tgt))
+                raw = await self._translate_text(b.text, src, tgt)
+            return TranslatedBlock(id=b.id, text=clean_translation(raw, b.text))
 
         return list(await asyncio.gather(*(run(b) for b in blocks)))
 

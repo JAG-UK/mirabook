@@ -7,6 +7,7 @@ from app.translate.base import (
     ALTERNATIVES_SYSTEM,
     EXPLAIN_GRAMMAR_SYSTEM,
     EXPLAIN_IDIOM_SYSTEM,
+    PROMPT_VERSION,
     TRANSLATE_SYSTEM,
     TranslationProvider,
 )
@@ -25,15 +26,24 @@ class OllamaProvider(TranslationProvider):
 
     @property
     def model_id(self) -> str:
-        return f"ollama:{self._model}"
+        return f"ollama:{self._model}#p{PROMPT_VERSION}"
+
+    def _messages(self, system: str, user: str) -> list[dict]:
+        # Gemma 2 was not trained with a system role — Ollama just prepends it
+        # and the model under-weights it. Fold the instruction into the user
+        # turn so families that ignore `system` still follow it. Other families
+        # (qwen, llama, mistral, …) keep the conventional system message.
+        if "gemma" in self._model.lower():
+            return [{"role": "user", "content": f"{system}\n\n{user}"}]
+        return [
+            {"role": "system", "content": system},
+            {"role": "user", "content": user},
+        ]
 
     async def _chat(self, system: str, user: str, *, as_json: bool = False) -> str:
         payload = {
             "model": self._model,
-            "messages": [
-                {"role": "system", "content": system},
-                {"role": "user", "content": user},
-            ],
+            "messages": self._messages(system, user),
             "stream": False,
             "options": {"temperature": 0.2},
         }

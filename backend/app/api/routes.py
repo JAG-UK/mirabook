@@ -84,6 +84,32 @@ async def get_book(req: Request, book_id: str):
     return meta
 
 
+def _has_letters(text: str) -> bool:
+    """True if the text has anything worth translating. Page numbers, separators
+    and the like (no letters) are passed through unchanged — a chatty instruct
+    model would otherwise reply 'please provide text to translate'."""
+    return any(c.isalpha() for c in text)
+
+
+async def _translate_map(store, provider, book_id, meta, blocks):
+    """Return {block_id: TranslatedBlock} for the given blocks. Letter-free text
+    passes through untranslated; the rest is served from cache or translated
+    (concurrently across everything missing) and cached."""
+    text_blocks = [b for b in blocks if b.type != BlockType.image and b.text.strip()]
+    needs = [b for b in text_blocks if _has_letters(b.text)]
+    cached = store.get_cached(book_id, [b.id for b in needs], provider.model_id)
+    missing = [b for b in needs if b.id not in cached]
+    if missing:
+        fresh = await provider.translate(missing, meta.source_lang, meta.target_lang)
+        store.save_translations(book_id, provider.model_id, fresh)
+        cached.update({t.id: t for t in fresh})
+    result: dict[str, TranslatedBlock] = dict(cached)
+    for b in text_blocks:
+        if not _has_letters(b.text):
+            result[b.id] = TranslatedBlock(id=b.id, text=b.text)
+    return result
+
+
 @router.get("/books/{book_id}/pages/{page}", response_model=Page)
 async def get_page(req: Request, book_id: str, page: int):
     """Return a page's source blocks plus translations, translating any
@@ -93,20 +119,12 @@ async def get_page(req: Request, book_id: str, page: int):
     if not meta:
         raise HTTPException(404, "Book not found")
     blocks = store.get_page(book_id, page)
-    provider = get_provider()
-
-    translatable = [b for b in blocks if b.type != BlockType.image and b.text.strip()]
-    cached = store.get_cached(book_id, [b.id for b in translatable], provider.model_id)
-    missing = [b for b in translatable if b.id not in cached]
-    if missing:
-        fresh = await provider.translate(missing, meta.source_lang, meta.target_lang)
-        store.save_translations(book_id, provider.model_id, fresh)
-        cached.update({t.id: t for t in fresh})
-
-    translations: list[TranslatedBlock] = [
-        cached[b.id] for b in translatable if b.id in cached
-    ]
-    return Page(number=page, blocks=blocks, translations=translations)
+    tmap = await _translate_map(store, get_provider(), book_id, meta, blocks)
+    return Page(
+        number=page,
+        blocks=blocks,
+        translations=[tmap[b.id] for b in blocks if b.id in tmap],
+    )
 
 
 class TranslatePagesRequest(BaseModel):
@@ -121,27 +139,14 @@ async def translate_pages(req: Request, book_id: str, body: TranslatePagesReques
     meta = store.get_book(book_id)
     if not meta:
         raise HTTPException(404, "Book not found")
-    provider = get_provider()
-
     page_blocks = {n: store.get_page(book_id, n) for n in body.pages}
-    translatable = [
-        b
-        for blocks in page_blocks.values()
-        for b in blocks
-        if b.type != BlockType.image and b.text.strip()
-    ]
-    cached = store.get_cached(book_id, [b.id for b in translatable], provider.model_id)
-    missing = [b for b in translatable if b.id not in cached]
-    if missing:
-        fresh = await provider.translate(missing, meta.source_lang, meta.target_lang)
-        store.save_translations(book_id, provider.model_id, fresh)
-        cached.update({t.id: t for t in fresh})
-
+    all_blocks = [b for blocks in page_blocks.values() for b in blocks]
+    tmap = await _translate_map(store, get_provider(), book_id, meta, all_blocks)
     return [
         Page(
             number=n,
             blocks=page_blocks[n],
-            translations=[cached[b.id] for b in page_blocks[n] if b.id in cached],
+            translations=[tmap[b.id] for b in page_blocks[n] if b.id in tmap],
         )
         for n in body.pages
     ]

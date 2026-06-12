@@ -5,6 +5,7 @@ from app.translate.base import (
     ALTERNATIVES_SYSTEM,
     EXPLAIN_GRAMMAR_SYSTEM,
     EXPLAIN_IDIOM_SYSTEM,
+    PROMPT_VERSION,
     TRANSLATE_SYSTEM,
     TranslationProvider,
 )
@@ -30,7 +31,7 @@ class AnthropicProvider(TranslationProvider):
 
     @property
     def model_id(self) -> str:
-        return f"anthropic:{self._model}"
+        return f"anthropic:{self._model}#p{PROMPT_VERSION}"
 
     async def _msg(self, system: str, user: str, max_tokens: int = 1024) -> str:
         r = await self._client.messages.create(
