@@ -10,7 +10,7 @@ Run:  uv run python scripts/reingest.py
 from pathlib import Path
 
 from app.config import get_settings
-from app.ingest.pdf import ingest_pdf
+from app.ingest.pdf import ingest_document
 from app.store.db import Store
 
 
@@ -21,12 +21,12 @@ def main() -> None:
     try:
         for meta in store.list_books():
             media = data / "media" / meta.id
-            pdf = media / "source.pdf"
-            if not pdf.exists():
-                print(f"skip {meta.id} ({meta.title}) — no source.pdf")
+            src = next(iter(media.glob("source.*")), None)
+            if src is None:
+                print(f"skip {meta.id} ({meta.title}) — no source file")
                 continue
-            m, blocks = ingest_pdf(
-                pdf, meta.id, meta.title, media, f"/media/{meta.id}",
+            m, blocks = ingest_document(
+                src, meta.id, meta.title, media, f"/media/{meta.id}",
                 meta.source_lang, meta.target_lang,
             )
             store.save_book(m, blocks)

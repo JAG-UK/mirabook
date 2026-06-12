@@ -5,7 +5,7 @@ from pathlib import Path
 from fastapi import APIRouter, File, HTTPException, Request, UploadFile
 from pydantic import BaseModel
 
-from app.ingest.pdf import ingest_pdf
+from app.ingest.pdf import ingest_document
 from app.ingest.toc import derive_toc
 from app.models import (
     Alternative,
@@ -46,21 +46,26 @@ async def list_books(req: Request):
     return _store(req).list_books()
 
 
+SUPPORTED_UPLOADS = (".pdf", ".epub")
+
+
 @router.post("/books", response_model=BookMeta)
 async def upload_book(req: Request, file: UploadFile = File(...)):
-    if not (file.filename or "").lower().endswith(".pdf"):
-        raise HTTPException(400, "Only PDF uploads are supported")
+    name = (file.filename or "").lower()
+    ext = next((e for e in SUPPORTED_UPLOADS if name.endswith(e)), None)
+    if not ext:
+        raise HTTPException(400, "Only PDF and EPUB uploads are supported")
     s = _settings(req)
     book_id = uuid.uuid4().hex[:12]
     media_dir = Path(s.data_dir) / "media" / book_id
     media_dir.mkdir(parents=True, exist_ok=True)
-    pdf_path = media_dir / "source.pdf"
-    with pdf_path.open("wb") as f:
+    src_path = media_dir / f"source{ext}"
+    with src_path.open("wb") as f:
         shutil.copyfileobj(file.file, f)
 
     title = Path(file.filename).stem
-    meta, blocks = ingest_pdf(
-        pdf_path,
+    meta, blocks = ingest_document(
+        src_path,
         book_id,
         title,
         media_dir,

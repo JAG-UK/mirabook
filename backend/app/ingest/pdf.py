@@ -1,9 +1,11 @@
-"""PDF ingestion: PyMuPDF -> normalized, selectable Document/Block model.
+"""Document ingestion: PyMuPDF -> normalized, selectable Document/Block model.
 
-Strategy: extract per-page text spans and images, preserve reading order by
-(y, x), and classify headings by comparing a text run's max font size to the
-document's median (body) size. Images are written to the book's media dir and
-referenced by a URL path so the frontend can render them inline at position.
+Handles fixed-layout PDFs and reflowable e-books (EPUB, FB2, …) — PyMuPDF opens
+both. Reflowable formats are paginated first (`doc.layout`). Strategy: extract
+per-page text spans and images, preserve reading order by (y, x), and classify
+headings by comparing a text run's max font size to the document's median
+(body) size. Images are written to the book's media dir and referenced by a URL
+path so the frontend can render them inline at position.
 """
 
 from __future__ import annotations
@@ -50,8 +52,8 @@ def _classify(max_size: float, body: float, bold: bool, text: str) -> tuple[Bloc
     return BlockType.paragraph, None
 
 
-def ingest_pdf(
-    pdf_path: Path,
+def ingest_document(
+    src_path: Path,
     book_id: str,
     title: str,
     media_dir: Path,
@@ -59,7 +61,10 @@ def ingest_pdf(
     source_lang: str,
     target_lang: str,
 ) -> tuple[BookMeta, list[Block]]:
-    doc = fitz.open(pdf_path)
+    doc = fitz.open(src_path)
+    # Reflowable e-books (EPUB/FB2/…) must be paginated before extraction.
+    if doc.is_reflowable:
+        doc.layout(rect=fitz.paper_rect("a5"), fontsize=11)
     images_dir = media_dir / "images"
     images_dir.mkdir(parents=True, exist_ok=True)
 

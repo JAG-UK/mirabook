@@ -2,7 +2,7 @@ import tempfile
 from collections import Counter
 from pathlib import Path
 
-from app.ingest.pdf import ingest_pdf
+from app.ingest.pdf import ingest_document
 from app.models import BlockType
 
 SAMPLE = Path(__file__).resolve().parents[2] / "sample-books" / "don-quijote-es.pdf"
@@ -10,7 +10,7 @@ SAMPLE = Path(__file__).resolve().parents[2] / "sample-books" / "don-quijote-es.
 
 def test_ingest_sample_structure():
     media = Path(tempfile.mkdtemp())
-    meta, blocks = ingest_pdf(
+    meta, blocks = ingest_document(
         SAMPLE, "test", "don-quijote-es", media, "/media/test", "Spanish", "English"
     )
 
@@ -34,7 +34,7 @@ def test_ingest_sample_structure():
 
 def test_chapter_detection_excludes_title():
     media = Path(tempfile.mkdtemp())
-    meta, _ = ingest_pdf(
+    meta, _ = ingest_document(
         SAMPLE, "test", "don-quijote-es", media, "/media/test", "Spanish", "English"
     )
     titles = [t.title for t in meta.toc]
