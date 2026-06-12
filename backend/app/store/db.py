@@ -102,6 +102,13 @@ class Store:
             )
             self._conn.commit()
 
+    def delete_book(self, book_id: str) -> None:
+        with self._lock:
+            self._conn.execute("DELETE FROM translations WHERE book_id = ?", (book_id,))
+            self._conn.execute("DELETE FROM blocks WHERE book_id = ?", (book_id,))
+            self._conn.execute("DELETE FROM books WHERE id = ?", (book_id,))
+            self._conn.commit()
+
     def list_books(self) -> list[BookMeta]:
         rows = self._conn.execute(
             "SELECT * FROM books ORDER BY created_at DESC"

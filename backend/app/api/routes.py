@@ -84,6 +84,18 @@ async def get_book(req: Request, book_id: str):
     return meta
 
 
+@router.delete("/books/{book_id}", status_code=204)
+async def delete_book(req: Request, book_id: str):
+    """Remove a book entirely: its rows (book, blocks, translations) and its
+    extracted media (the source PDF + images)."""
+    store = _store(req)
+    if not store.get_book(book_id):
+        raise HTTPException(404, "Book not found")
+    store.delete_book(book_id)
+    media_dir = Path(_settings(req).data_dir) / "media" / book_id
+    shutil.rmtree(media_dir, ignore_errors=True)
+
+
 def _has_letters(text: str) -> bool:
     """True if the text has anything worth translating. Page numbers, separators
     and the like (no letters) are passed through unchanged — a chatty instruct

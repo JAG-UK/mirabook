@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { BookMeta, listBooks, uploadBook } from '../api/client'
+import { BookMeta, deleteBook, listBooks, uploadBook } from '../api/client'
 import ProfileMenu from '../components/ProfileMenu'
 import Spinner from '../components/Spinner'
 import { useProfile } from '../lib/profiles'
@@ -100,6 +100,23 @@ export default function Library() {
     if (!confirm(`Remove the offline copy of “${meta.title}”?`)) return
     await deleteOfflineBook(meta.id)
     setDownloads(await getDownloadIndex())
+  }
+
+  async function removeBook(meta: BookMeta) {
+    if (
+      !confirm(
+        `Remove “${meta.title}” from the library?\n\n` +
+          'This permanently deletes its pages and translations on the server.',
+      )
+    )
+      return
+    try {
+      await deleteBook(meta.id)
+      await deleteOfflineBook(meta.id)
+      await load()
+    } catch (err) {
+      setError(`Could not remove book: ${err}`)
+    }
   }
 
   const progressMap = new Map(listProgress(active.id).map((p) => [p.bookId, p]))
@@ -246,6 +263,20 @@ export default function Library() {
                         {bookmarked && <span className="bookmark-ribbon" />}
                         <span className="spine-title">{b.title}</span>
                       </button>
+
+                      {reachable && (
+                        <button
+                          className="spine-remove"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            removeBook(b)
+                          }}
+                          title="Remove from library"
+                          aria-label={`Remove ${b.title} from library`}
+                        >
+                          ✕
+                        </button>
+                      )}
 
                       <div className="spine-foot" onClick={(e) => e.stopPropagation()}>
                         {dl ? (

@@ -79,6 +79,11 @@ export const getPage = (id: string, n: number) =>
 export const translatePages = (id: string, pages: number[]) =>
   postJSON<PageData[]>(`/api/books/${id}/translate`, { pages })
 
+export async function deleteBook(id: string): Promise<void> {
+  const r = await fetch(`${BASE}/api/books/${id}`, { method: 'DELETE' })
+  if (!r.ok) throw new Error(`${r.status} ${r.statusText}`)
+}
+
 export async function uploadBook(file: File): Promise<BookMeta> {
   const form = new FormData()
   form.append('file', file)
