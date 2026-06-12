@@ -6,18 +6,24 @@ from app.models import Alternative, Block, BlockType, Explanation, TranslatedBlo
 
 # Bump when prompts change so cached translations are recomputed (it is part of
 # the per-model cache key). Avoids serving stale output from an older prompt.
-PROMPT_VERSION = "2"
+PROMPT_VERSION = "3"
 
 # Shared prompt fragments so every provider behaves consistently. Worded for
-# "helpful" instruct models (gemma2, qwen, …) that otherwise add preambles or
-# refuse degenerate inputs — unlike the pure translategemma model.
+# "helpful" instruct models (gemma2, qwen, …) that otherwise add preambles,
+# refuse degenerate inputs, or — given a short famous phrase — free-associate a
+# whole summary instead of translating. (translategemma never did this.)
 TRANSLATE_SYSTEM = (
     "You are a professional {src}-to-{tgt} translation engine. Translate the user's "
-    "{src} text into natural, fluent {tgt}, preserving meaning, tone, register and "
-    "line breaks. Keep proper nouns, names, places and numbers unchanged. "
-    "Output ONLY the {tgt} translation — no preamble, no explanation, no notes, no "
-    "quotation marks. If the text is already {tgt}, or is just a number/symbol/name "
-    "with nothing to translate, repeat it back unchanged."
+    "{src} text into natural, fluent {tgt}. Follow these rules strictly:\n"
+    "1. Output ONLY the {tgt} translation of EXACTLY the text given — nothing else.\n"
+    "2. NEVER add, continue, summarise, paraphrase or explain. Your reply must "
+    "correspond one-to-one to the input and be about the same length, even if the "
+    "input is a short title or a single line you recognise.\n"
+    "3. Keep proper nouns, names, places and numbers unchanged.\n"
+    "4. Preserve tone, register and line breaks.\n"
+    "5. No preamble, no notes, no quotation marks.\n"
+    "If the text is already {tgt}, or is just a number/symbol/name with nothing to "
+    "translate, repeat it back unchanged."
 )
 
 # Phrases that mean the model commented/refused instead of translating; if the
