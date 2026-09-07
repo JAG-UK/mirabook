@@ -93,13 +93,31 @@ export MIRABOOK_OLLAMA_CONCURRENCY=4
 | ----- | ---- | ----- |
 | `gemma4:31b` | ~20 GB | Dense, best quality — the direct successor to `gemma2:27b` |
 | `gemma4:26b` | ~19 GB | Mixture-of-experts (3.8B active): far faster per block, same footprint |
-| `translategemma:27b` | ~17 GB | Purpose-built translator (55 languages), but weak at explanations |
+| `translategemma:27b` | ~17 GB | Purpose-built translator (55 languages); check the aids meet your bar |
 
 `gemma4:26b` is worth trying first if you download whole books for offline
 reading — only a fraction of its weights are active per token, so it translates
-a book far faster than a dense model of the same size. `translategemma` is a
-translation specialist: excellent for the side-by-side text, but the
-grammar/idiom/alternatives features need a general model.
+a book far faster than a dense model of the same size.
+
+**Avoid reasoning models** (`qwen3`, `deepseek-r1`, `phi4-mini-reasoning`, …).
+They think before answering, which is wasted on block translation and costs
+two orders of magnitude in latency — measured on the sample page, `qwen3:4b`
+took 98 s per block against 0.5 s for `translategemma:4b`.
+
+Don't take any of this on trust — measure it on your own hardware:
+
+```bash
+cd backend
+uv run python scripts/compare_models.py gemma2:27b gemma4:26b gemma4:31b \
+    --blocks 4 --out compare.md
+```
+
+`scripts/compare_models.py` runs the same blocks through each model using
+Mirabook's real prompts, warms each one up before timing it, and prints the
+translations side by side along with a grammar/idiom check — so you can judge
+quality as well as speed. It writes nothing to the database and leaves the
+translation cache untouched. Run it on the box that will serve the app, while
+it is otherwise idle.
 
 Switching models re-translates each page once (the cache is keyed per model).
 `backend/scripts/reingest.py` and the in-app "Download for offline" flow are
