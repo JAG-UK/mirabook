@@ -1,9 +1,9 @@
 # Mirabook
 
-A language-learning reading aid. Upload a Spanish (or other target-language) PDF
-e-book and read it with a high-quality AI translation rendered side-by-side, plus
-reading aids: drag-select grammar/idiom explanations, multiple translation options,
-and an anti-cheating blur on the translation.
+A language-learning reading aid. Upload a Spanish (or other target-language)
+e-book — **PDF or EPUB** — and read it with a high-quality AI translation rendered
+side-by-side, plus reading aids: drag-select grammar/idiom explanations, multiple
+translation options, and an anti-cheating blur on the translation.
 
 The translation backend runs on **Ollama** by default (small models for local dev,
 a large model on capable hardware), and can be switched to the Anthropic or OpenAI
@@ -18,10 +18,14 @@ mirabook/
   sample-books/ public-domain Spanish PDF(s) for development
 ```
 
-Each PDF is ingested into a normalized, **selectable** document model
+Each book is ingested into a normalized, **selectable** document model
 (`Document → Page → Block`, blocks tagged heading/paragraph/list/image). Blocks
 are translated one-by-one so a source paragraph and its translation share a stable
 id — that alignment is what powers the blur reveal and source↔translation highlight.
+
+Both fixed-layout (PDF) and reflowable (EPUB) sources go through the same
+PyMuPDF-based ingest; reflowable books are paginated to a fixed A5 layout first,
+so they get stable page numbers like a PDF does.
 
 ## Prerequisites
 
@@ -55,7 +59,7 @@ pnpm dev                      # http://localhost:5173
 All settings are environment variables prefixed `MIRABOOK_` (see
 `backend/.env.example`). Switch the high-quality path by setting
 `MIRABOOK_PROVIDER=anthropic` (or `openai`) and the matching API key, or point
-`MIRABOOK_OLLAMA_MODEL` at a larger local model like `gemma2:27b`.
+`MIRABOOK_OLLAMA_MODEL` at a larger local model like `gemma4:31b`.
 
 ## API
 
@@ -63,8 +67,9 @@ All settings are environment variables prefixed `MIRABOOK_` (see
 | ------ | ---- | ------- |
 | GET  | `/api/health` | provider/model status |
 | GET  | `/api/books` | library list |
-| POST | `/api/books` | upload + ingest a PDF |
+| POST | `/api/books` | upload + ingest a PDF or EPUB |
 | GET  | `/api/books/{id}` | metadata + TOC |
+| DELETE | `/api/books/{id}` | remove a book (rows + extracted media) |
 | GET  | `/api/books/{id}/pages/{n}` | source blocks + translations (cached) |
 | POST | `/api/explain` | grammar/idiom explanation for a selection |
 | POST | `/api/alternatives` | multiple translation options for a selection |
@@ -75,14 +80,26 @@ All settings are environment variables prefixed `MIRABOOK_` (see
 Ollama auto-detects the GPU (CUDA) — **no code changes are needed**. Just run
 Ollama on the GPU box and point Mirabook at a strong general model that handles
 both translation and the grammar/idiom/alternatives features. On a 32 GB card
-(e.g. RTX 5090), `gemma2:27b` is a good pick and runs fully on the GPU:
+(e.g. RTX 5090), the Gemma 4 medium models run fully on the GPU:
 
 ```bash
-ollama pull gemma2:27b
-export MIRABOOK_OLLAMA_MODEL=gemma2:27b
+ollama pull gemma4:31b
+export MIRABOOK_OLLAMA_MODEL=gemma4:31b
 # raise parallelism on a big GPU (and set OLLAMA_NUM_PARALLEL on the server)
 export MIRABOOK_OLLAMA_CONCURRENCY=4
 ```
+
+| Model | VRAM | Notes |
+| ----- | ---- | ----- |
+| `gemma4:31b` | ~20 GB | Dense, best quality — the direct successor to `gemma2:27b` |
+| `gemma4:26b` | ~19 GB | Mixture-of-experts (3.8B active): far faster per block, same footprint |
+| `translategemma:27b` | ~17 GB | Purpose-built translator (55 languages), but weak at explanations |
+
+`gemma4:26b` is worth trying first if you download whole books for offline
+reading — only a fraction of its weights are active per token, so it translates
+a book far faster than a dense model of the same size. `translategemma` is a
+translation specialist: excellent for the side-by-side text, but the
+grammar/idiom/alternatives features need a general model.
 
 Switching models re-translates each page once (the cache is keyed per model).
 `backend/scripts/reingest.py` and the in-app "Download for offline" flow are

@@ -1,4 +1,4 @@
-"""Re-ingest every stored book from its saved source PDF, in place.
+"""Re-ingest every stored book from its saved source file (PDF or EPUB), in place.
 
 Block ids are deterministic (p{page}-b{order}), so cached translations remain
 valid. Use this after ingest/TOC logic changes to refresh existing books
