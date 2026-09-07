@@ -33,11 +33,16 @@ class AnthropicProvider(TranslationProvider):
     def model_id(self) -> str:
         return f"anthropic:{self._model}#p{PROMPT_VERSION}"
 
-    async def _msg(self, system: str, user: str, max_tokens: int = 1024) -> str:
+    async def _msg(self, system: str, user: str, max_tokens: int = 4096) -> str:
+        # Current models (Opus 5 and later) think by default, and thinking
+        # tokens count against max_tokens — so a 1k budget could be spent
+        # reasoning and truncate the translation itself. Translating a block is
+        # mechanical, so ask for the cheapest effort and leave real headroom.
         r = await self._client.messages.create(
             model=self._model,
             system=system,
             max_tokens=max_tokens,
+            output_config={"effort": "low"},
             messages=[{"role": "user", "content": user}],
         )
         return "".join(b.text for b in r.content if b.type == "text").strip()

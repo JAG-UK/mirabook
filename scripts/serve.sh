@@ -8,7 +8,7 @@
 #
 # Useful env vars:
 #   PORT                     port to serve on (default 8000)
-#   MIRABOOK_OLLAMA_MODEL    model to use (default gemma2:27b)
+#   MIRABOOK_OLLAMA_MODEL    model to use (default gemma4:31b)
 #   MIRABOOK_OLLAMA_HOST     Ollama URL (default http://localhost:11434)
 #   MIRABOOK_BASIC_AUTH      "user:pass" — STRONGLY recommended for a public URL
 #   SKIP_BUILD=1             reuse an existing frontend/dist
@@ -17,7 +17,7 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PORT="${PORT:-8000}"
-export MIRABOOK_OLLAMA_MODEL="${MIRABOOK_OLLAMA_MODEL:-gemma2:27b}"
+export MIRABOOK_OLLAMA_MODEL="${MIRABOOK_OLLAMA_MODEL:-gemma4:31b}"
 export MIRABOOK_OLLAMA_HOST="${MIRABOOK_OLLAMA_HOST:-http://localhost:11434}"
 export MIRABOOK_STATIC_DIR="$ROOT/frontend/dist"
 

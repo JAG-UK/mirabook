@@ -28,11 +28,11 @@ class Settings(BaseSettings):
 
     # Anthropic (only used when provider == "anthropic")
     anthropic_api_key: str | None = None
-    anthropic_model: str = "claude-opus-4-8"
+    anthropic_model: str = "claude-opus-5"
 
     # OpenAI (only used when provider == "openai")
     openai_api_key: str | None = None
-    openai_model: str = "gpt-4o"
+    openai_model: str = "gpt-5.6-terra"
 
 
 @lru_cache

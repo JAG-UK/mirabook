@@ -1,4 +1,5 @@
 import json
+import re
 
 import httpx
 
@@ -28,12 +29,22 @@ class OllamaProvider(TranslationProvider):
     def model_id(self) -> str:
         return f"ollama:{self._model}#p{PROMPT_VERSION}"
 
+    def _needs_folded_system(self) -> bool:
+        """True for Gemma generations that only know `user` and `model` turns.
+
+        Gemma 1-3 (translategemma included) were not trained with a system
+        role — Ollama just prepends it and the model under-weights it, so the
+        instruction has to be folded into the user turn. Gemma 4 added a real
+        system turn, so it takes the conventional message like every other
+        family (qwen, llama, mistral, …).
+        """
+        name = self._model.lower()
+        if "gemma" not in name:
+            return False
+        return not re.search(r"gemma-?[4-9]", name)
+
     def _messages(self, system: str, user: str) -> list[dict]:
-        # Gemma 2 was not trained with a system role — Ollama just prepends it
-        # and the model under-weights it. Fold the instruction into the user
-        # turn so families that ignore `system` still follow it. Other families
-        # (qwen, llama, mistral, …) keep the conventional system message.
-        if "gemma" in self._model.lower():
+        if self._needs_folded_system():
             return [{"role": "user", "content": f"{system}\n\n{user}"}]
         return [
             {"role": "system", "content": system},

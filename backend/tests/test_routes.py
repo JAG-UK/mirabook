@@ -1,0 +1,312 @@
+"""Tests for the HTTP API, driven through FastAPI's TestClient against a stub
+translation provider so nothing here needs Ollama (or a network)."""
+
+from pathlib import Path
+
+import pytest
+from fastapi.testclient import TestClient
+
+from app.api import routes
+from app.config import get_settings
+from app.models import Alternative, Block, BlockType, BookMeta, Explanation, TocEntry
+from app.translate.base import TranslationProvider
+
+SAMPLE = Path(__file__).resolve().parents[2] / "sample-books" / "don-quijote-es.pdf"
+
+
+class StubProvider(TranslationProvider):
+    """Uppercases the source instead of calling a model, and records what it
+    was asked to translate so tests can assert on cache behaviour."""
+
+    name = "stub"
+
+    def __init__(self, model_id: str = "stub:v1"):
+        self._model_id = model_id
+        self.translated: list[str] = []
+
+    @property
+    def model_id(self) -> str:
+        return self._model_id
+
+    async def _translate_text(self, text: str, src: str, tgt: str) -> str:
+        self.translated.append(text)
+        return text.upper()
+
+    async def explain(self, text, context, kind, src, tgt) -> Explanation:
+        return Explanation(kind=kind, text=f"{kind} for {text!r} in {src}->{tgt}")
+
+    async def alternatives(self, text, context, src, tgt) -> list[Alternative]:
+        return [Alternative(text=text.upper(), note="literal"), Alternative(text="loose")]
+
+
+@pytest.fixture
+def provider(monkeypatch) -> StubProvider:
+    stub = StubProvider()
+    monkeypatch.setattr(routes, "get_provider", lambda: stub)
+    return stub
+
+
+@pytest.fixture
+def client(tmp_path, monkeypatch, provider) -> TestClient:
+    monkeypatch.setenv("MIRABOOK_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("MIRABOOK_PROVIDER", "ollama")
+    monkeypatch.setenv("MIRABOOK_SOURCE_LANG", "Spanish")
+    monkeypatch.setenv("MIRABOOK_TARGET_LANG", "English")
+    monkeypatch.delenv("MIRABOOK_BASIC_AUTH", raising=False)
+    get_settings.cache_clear()
+
+    from app.main import create_app
+
+    with TestClient(create_app()) as c:
+        yield c
+    get_settings.cache_clear()
+
+
+def seed_book(client: TestClient, book_id: str = "bk1") -> BookMeta:
+    """Put a small synthetic book straight into the store — faster than
+    ingesting a PDF, and lets a test choose exactly which blocks exist."""
+    meta = BookMeta(
+        id=book_id,
+        title="Sintético",
+        source_lang="Spanish",
+        target_lang="English",
+        page_count=2,
+        toc=[TocEntry(title="Capítulo I", page=1, level=1)],
+    )
+    blocks = [
+        Block(
+            id="p1-b0", page=1, order=0, type=BlockType.heading,
+            text="Capítulo I", level=1, size=20.0,
+        ),
+        Block(id="p1-b1", page=1, order=1, type=BlockType.paragraph, text="En un lugar", size=11.0),
+        Block(
+            id="p1-b2", page=1, order=2, type=BlockType.image,
+            src=f"/media/{book_id}/images/a.png",
+        ),
+        Block(id="p1-b3", page=1, order=3, type=BlockType.paragraph, text="— 42 —", size=11.0),
+        Block(
+            id="p2-b4", page=2, order=4, type=BlockType.paragraph, text="de la Mancha", size=11.0
+        ),
+    ]
+    client.app.state.store.save_book(meta, blocks)
+    return meta
+
+
+# --- health ---
+
+
+def test_health_reports_provider_and_languages(client: TestClient):
+    body = client.get("/api/health").json()
+    assert body["status"] == "ok"
+    assert body["model"] == "stub:v1"
+    assert body["source_lang"] == "Spanish"
+    assert body["target_lang"] == "English"
+
+
+# --- library ---
+
+
+def test_books_list_is_empty_before_any_upload(client: TestClient):
+    assert client.get("/api/books").json() == []
+
+
+def test_library_lists_saved_books(client: TestClient):
+    seed_book(client)
+    assert [b["id"] for b in client.get("/api/books").json()] == ["bk1"]
+
+
+@pytest.mark.parametrize("filename", ["notes.txt", "book.mobi", "noextension"])
+def test_upload_rejects_unsupported_file_types(client: TestClient, filename):
+    r = client.post("/api/books", files={"file": (filename, b"data", "application/octet-stream")})
+    assert r.status_code == 400
+    assert "PDF and EPUB" in r.json()["detail"]
+
+
+def test_upload_ingests_a_pdf_and_stores_its_source(client: TestClient, tmp_path):
+    with SAMPLE.open("rb") as f:
+        r = client.post("/api/books", files={"file": ("don-quijote-es.pdf", f, "application/pdf")})
+    assert r.status_code == 200
+    meta = r.json()
+    assert meta["title"] == "don-quijote-es"
+    assert meta["page_count"] > 1
+    assert meta["source_lang"] == "Spanish"
+    # The uploaded file is kept so the book can be re-ingested later.
+    assert (tmp_path / "media" / meta["id"] / "source.pdf").is_file()
+    assert [b["id"] for b in client.get("/api/books").json()] == [meta["id"]]
+
+
+def test_get_book_returns_metadata_and_toc(client: TestClient):
+    seed_book(client)
+    body = client.get("/api/books/bk1").json()
+    assert body["title"] == "Sintético"
+    assert body["toc"] == [{"title": "Capítulo I", "page": 1, "level": 1}]
+
+
+def test_get_book_derives_a_toc_when_none_was_stored(client: TestClient):
+    """A book ingested without an outline gets chapters derived from headings."""
+    meta = BookMeta(
+        id="bk2", title="Sin índice", source_lang="Spanish",
+        target_lang="English", page_count=2, toc=[],
+    )
+    blocks = [
+        Block(
+            id="p1-b0", page=1, order=0, type=BlockType.heading,
+            text="Capítulo I", level=1, size=20.0,
+        ),
+        Block(id="p1-b1", page=1, order=1, type=BlockType.paragraph, text="En un lugar", size=11.0),
+        Block(
+            id="p2-b2", page=2, order=2, type=BlockType.heading,
+            text="Capítulo II", level=1, size=20.0,
+        ),
+    ]
+    client.app.state.store.save_book(meta, blocks)
+
+    toc = client.get("/api/books/bk2").json()["toc"]
+    assert [t["title"] for t in toc] == ["Capítulo I", "Capítulo II"]
+    assert [t["page"] for t in toc] == [1, 2]
+
+
+def test_unknown_book_is_404_on_every_route(client: TestClient):
+    assert client.get("/api/books/nope").status_code == 404
+    assert client.get("/api/books/nope/pages/1").status_code == 404
+    assert client.delete("/api/books/nope").status_code == 404
+    assert client.post("/api/books/nope/translate", json={"pages": [1]}).status_code == 404
+
+
+# --- deletion ---
+
+
+def test_delete_removes_the_book_its_translations_and_its_media(client: TestClient, tmp_path):
+    seed_book(client)
+    client.get("/api/books/bk1/pages/1")
+    media = tmp_path / "media" / "bk1"
+    media.mkdir(parents=True, exist_ok=True)
+    (media / "source.pdf").write_bytes(b"pdf")
+
+    assert client.delete("/api/books/bk1").status_code == 204
+
+    assert client.get("/api/books/bk1").status_code == 404
+    assert client.get("/api/books").json() == []
+    assert not media.exists()
+    store = client.app.state.store
+    assert store.get_cached("bk1", ["p1-b1"], "stub:v1") == {}
+
+
+# --- pages + translation ---
+
+
+def test_get_page_returns_blocks_with_aligned_translations(client: TestClient):
+    seed_book(client)
+    body = client.get("/api/books/bk1/pages/1").json()
+
+    assert body["number"] == 1
+    assert [b["id"] for b in body["blocks"]] == ["p1-b0", "p1-b1", "p1-b2", "p1-b3"]
+    by_id = {t["id"]: t["text"] for t in body["translations"]}
+    assert by_id["p1-b0"] == "CAPÍTULO I"
+    assert by_id["p1-b1"] == "EN UN LUGAR"
+    # Images carry no translation; the alignment key is simply absent.
+    assert "p1-b2" not in by_id
+
+
+def test_letter_free_text_is_passed_through_untranslated(
+    client: TestClient, provider: StubProvider
+):
+    """Page numbers and separators would make a chatty model editorialise."""
+    seed_book(client)
+    body = client.get("/api/books/bk1/pages/1").json()
+
+    assert {t["id"]: t["text"] for t in body["translations"]}["p1-b3"] == "— 42 —"
+    assert "— 42 —" not in provider.translated
+
+
+def test_translations_are_cached_after_the_first_request(
+    client: TestClient, provider: StubProvider
+):
+    seed_book(client)
+    client.get("/api/books/bk1/pages/1")
+    assert sorted(provider.translated) == ["Capítulo I", "En un lugar"]
+
+    provider.translated.clear()
+    second = client.get("/api/books/bk1/pages/1").json()
+    assert provider.translated == []
+    assert {t["id"]: t["text"] for t in second["translations"]}["p1-b1"] == "EN UN LUGAR"
+
+
+def test_a_new_model_id_invalidates_the_cache(
+    client: TestClient, provider: StubProvider, monkeypatch
+):
+    """Switching model — or bumping PROMPT_VERSION — re-translates the page."""
+    seed_book(client)
+    client.get("/api/books/bk1/pages/1")
+
+    newer = StubProvider("stub:v2")
+    monkeypatch.setattr(routes, "get_provider", lambda: newer)
+    client.get("/api/books/bk1/pages/1")
+    assert sorted(newer.translated) == ["Capítulo I", "En un lugar"]
+
+
+def test_an_empty_page_returns_no_blocks(client: TestClient):
+    seed_book(client)
+    body = client.get("/api/books/bk1/pages/99").json()
+    assert body["blocks"] == []
+    assert body["translations"] == []
+
+
+def test_batch_translate_returns_pages_in_the_requested_order(client: TestClient):
+    seed_book(client)
+    pages = client.post("/api/books/bk1/translate", json={"pages": [2, 1]}).json()
+
+    assert [p["number"] for p in pages] == [2, 1]
+    assert {t["id"]: t["text"] for t in pages[0]["translations"]}["p2-b4"] == "DE LA MANCHA"
+    assert [b["id"] for b in pages[1]["blocks"]] == ["p1-b0", "p1-b1", "p1-b2", "p1-b3"]
+
+
+def test_batch_translate_shares_the_cache_with_single_page_reads(
+    client: TestClient, provider: StubProvider
+):
+    seed_book(client)
+    client.post("/api/books/bk1/translate", json={"pages": [1, 2]})
+    provider.translated.clear()
+
+    client.get("/api/books/bk1/pages/2")
+    assert provider.translated == []
+
+
+# --- reading aids ---
+
+
+@pytest.mark.parametrize("kind", ["grammar", "idiom"])
+def test_explain_passes_kind_and_languages_through(client: TestClient, kind):
+    body = client.post(
+        "/api/explain", json={"text": "se lo dije", "context": "Ya se lo dije.", "kind": kind}
+    ).json()
+    assert body["kind"] == kind
+    assert "'se lo dije'" in body["text"]
+    assert "Spanish->English" in body["text"]
+
+
+def test_alternatives_returns_the_option_list(client: TestClient):
+    body = client.post("/api/alternatives", json={"text": "de la Mancha"}).json()
+    assert [a["text"] for a in body] == ["DE LA MANCHA", "loose"]
+    assert body[0]["note"] == "literal"
+
+
+# --- basic auth ---
+
+
+def test_basic_auth_guards_every_route_when_configured(tmp_path, monkeypatch, provider):
+    monkeypatch.setenv("MIRABOOK_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("MIRABOOK_BASIC_AUTH", "reader:s3cret")
+    get_settings.cache_clear()
+    from app.main import create_app
+
+    try:
+        with TestClient(create_app()) as c:
+            unauthorized = c.get("/api/health")
+            assert unauthorized.status_code == 401
+            assert unauthorized.headers["www-authenticate"].startswith("Basic")
+
+            assert c.get("/api/health", auth=("reader", "wrong")).status_code == 401
+            assert c.get("/api/health", auth=("reader", "s3cret")).status_code == 200
+    finally:
+        get_settings.cache_clear()

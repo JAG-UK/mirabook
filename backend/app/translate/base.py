@@ -34,8 +34,10 @@ _REFUSAL_RE = re.compile(
     re.IGNORECASE,
 )
 # A leading "Here is the translation:" / "Translation:" / "Sure, …:" preamble.
+# Every branch stops at the first colon: without that bound the trailing
+# alternative is greedy and eats the whole reply, leaving nothing behind.
 _PREAMBLE_RE = re.compile(
-    r"^\s*(here(?:'s| is)[^:\n]*:|translation[^:\n]*:|sure[,!][^\n]*:?)\s*",
+    r"^\s*(here(?:[’']s| is)[^:\n]*:|translation[^:\n]*:|sure[,!][^:\n]*:)\s*",
     re.IGNORECASE,
 )
 
