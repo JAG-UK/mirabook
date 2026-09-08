@@ -13,6 +13,9 @@ CREATE TABLE IF NOT EXISTS books (
   target_lang TEXT NOT NULL,
   page_count INTEGER NOT NULL,
   toc_json TEXT NOT NULL DEFAULT '[]',
+  author TEXT,
+  shelf TEXT,
+  source TEXT,
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 CREATE TABLE IF NOT EXISTS blocks (
@@ -59,6 +62,11 @@ class Store:
         cols = {r[1] for r in self._conn.execute("PRAGMA table_info(blocks)")}
         if "size" not in cols:
             self._conn.execute("ALTER TABLE blocks ADD COLUMN size REAL")
+        book_cols = {r[1] for r in self._conn.execute("PRAGMA table_info(books)")}
+        for name, decl in (("author", "TEXT"), ("shelf", "TEXT"), ("source", "TEXT")):
+            if name not in book_cols:
+                self._conn.execute(f"ALTER TABLE books ADD COLUMN {name} {decl}")
+        self._conn.execute("CREATE INDEX IF NOT EXISTS idx_books_source ON books(source)")
 
     def close(self) -> None:
         self._conn.close()
@@ -68,8 +76,9 @@ class Store:
         with self._lock:
             self._conn.execute(
                 "INSERT OR REPLACE INTO books "
-                "(id, title, source_lang, target_lang, page_count, toc_json) "
-                "VALUES (?,?,?,?,?,?)",
+                "(id, title, source_lang, target_lang, page_count, toc_json, "
+                "author, shelf, source) "
+                "VALUES (?,?,?,?,?,?,?,?,?)",
                 (
                     meta.id,
                     meta.title,
@@ -77,6 +86,9 @@ class Store:
                     meta.target_lang,
                     meta.page_count,
                     json.dumps([t.model_dump() for t in meta.toc]),
+                    meta.author,
+                    meta.shelf,
+                    meta.source,
                 ),
             )
             self._conn.execute("DELETE FROM blocks WHERE book_id = ?", (meta.id,))
@@ -109,6 +121,26 @@ class Store:
             self._conn.execute("DELETE FROM books WHERE id = ?", (book_id,))
             self._conn.commit()
 
+    def sources(self) -> set[str]:
+        """Every recorded provenance string — lets a bulk import resume."""
+        rows = self._conn.execute(
+            "SELECT source FROM books WHERE source IS NOT NULL"
+        ).fetchall()
+        return {r["source"] for r in rows}
+
+    def shelf_counts(self) -> dict[str, int]:
+        """How many books sit on each shelf. Books with no shelf are counted
+        under the empty string so the caller can label them as it likes."""
+        rows = self._conn.execute(
+            "SELECT COALESCE(shelf, '') AS shelf, COUNT(*) AS n FROM books GROUP BY 1"
+        ).fetchall()
+        return {r["shelf"]: r["n"] for r in rows}
+
+    def set_shelf(self, book_id: str, shelf: str | None) -> None:
+        with self._lock:
+            self._conn.execute("UPDATE books SET shelf = ? WHERE id = ?", (shelf, book_id))
+            self._conn.commit()
+
     def list_books(self) -> list[BookMeta]:
         rows = self._conn.execute(
             "SELECT * FROM books ORDER BY created_at DESC"
@@ -130,6 +162,9 @@ class Store:
             target_lang=row["target_lang"],
             page_count=row["page_count"],
             toc=[TocEntry(**t) for t in json.loads(row["toc_json"])],
+            author=row["author"],
+            shelf=row["shelf"],
+            source=row["source"],
         )
 
     # --- blocks ---

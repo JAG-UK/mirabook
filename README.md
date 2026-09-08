@@ -67,6 +67,7 @@ All settings are environment variables prefixed `MIRABOOK_` (see
 | ------ | ---- | ------- |
 | GET  | `/api/health` | provider/model status |
 | GET  | `/api/books` | library list |
+| GET  | `/api/shelves` | themed shelves and their book counts |
 | POST | `/api/books` | upload + ingest a PDF or EPUB |
 | GET  | `/api/books/{id}` | metadata + TOC |
 | DELETE | `/api/books/{id}` | remove a book (rows + extracted media) |
@@ -74,6 +75,48 @@ All settings are environment variables prefixed `MIRABOOK_` (see
 | POST | `/api/explain` | grammar/idiom explanation for a selection |
 | POST | `/api/alternatives` | multiple translation options for a selection |
 | POST | `/api/books/{id}/translate` | batch-translate pages (used by offline download) |
+
+## Filling the library from Project Gutenberg
+
+Project Gutenberg carries 885 Spanish-language texts. `import_gutenberg.py`
+brings in the ones worth reading:
+
+```bash
+cd backend
+uv run python scripts/import_gutenberg.py --dry-run     # see what it would take
+uv run python scripts/import_gutenberg.py --limit 20    # a first batch
+uv run python scripts/import_gutenberg.py               # the rest
+```
+
+It reads Gutenberg's machine-readable catalogue, asks the local Ollama model to
+judge each candidate for cultural value — the Spanish collection holds trade
+catalogues and committee reports alongside Cervantes — then downloads the EPUB,
+trims Gutenberg's licence boilerplate, and files the book on a themed shelf.
+
+Two things worth knowing. **Downloads come from a mirror, not gutenberg.org**,
+which blocks automated access and asks bulk users to go through a mirror with a
+delay between requests; the default is a polite 2 s and `--delay` only goes
+lower at your own risk. And **importing costs no GPU time** — translation is
+on-demand and cached per block, so an unopened book is just rows in SQLite.
+
+The run is resumable: books already imported are skipped by provenance, and the
+model's verdicts are cached in `data/gutenberg-verdicts.json`, which is plain
+JSON you can read and edit if you disagree with a call.
+
+## Themed shelves
+
+Books are filed on one of fourteen shelves (`app/shelves.py`), and the library
+groups and filters by them. For Gutenberg books the shelf comes from Project
+Gutenberg's own cataloguing — 96% of the Spanish collection carries a hand-made
+"Category:" tag, and the rest have a Library of Congress class — so no guessing
+is involved. Books you upload yourself arrive unshelved; to put them away:
+
+```bash
+uv run python scripts/categorize_library.py --dry-run
+```
+
+That asks the model to pick from the fixed shelf list, so the taxonomy stays
+small enough to browse instead of sprawling into near-duplicates.
 
 ## Running on a GPU server
 

@@ -41,6 +41,14 @@ export interface BookMeta {
   target_lang: string
   page_count: number
   toc: TocEntry[]
+  author?: string | null
+  shelf?: string | null
+  source?: string | null
+}
+
+export interface Shelf {
+  name: string
+  count: number
 }
 
 export interface Explanation {
@@ -72,6 +80,7 @@ async function postJSON<T>(path: string, body: unknown): Promise<T> {
 export const mediaUrl = (src: string) => `${BASE}${src}`
 
 export const listBooks = () => getJSON<BookMeta[]>('/api/books')
+export const listShelves = () => getJSON<Shelf[]>('/api/shelves')
 export const getBook = (id: string) => getJSON<BookMeta>(`/api/books/${id}`)
 export const getPage = (id: string, n: number) =>
   getJSON<PageData>(`/api/books/${id}/pages/${n}`)

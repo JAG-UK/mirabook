@@ -115,6 +115,53 @@ def test_library_lists_saved_books(client: TestClient):
     assert [b["id"] for b in client.get("/api/books").json()] == ["bk1"]
 
 
+# --- shelves ---
+
+
+def test_shelves_are_empty_for_an_empty_library(client: TestClient):
+    assert client.get("/api/shelves").json() == []
+
+
+def test_shelves_are_counted_and_returned_in_canonical_order(client: TestClient):
+    """Display order comes from app.shelves, not from insertion or count."""
+    store = client.app.state.store
+    for i, shelf in enumerate(["History", "Novels", "Poetry", "Novels"]):
+        store.save_book(
+            BookMeta(
+                id=f"b{i}", title=f"Libro {i}", source_lang="Spanish",
+                target_lang="English", page_count=1, shelf=shelf,
+            ),
+            [],
+        )
+    body = client.get("/api/shelves").json()
+    assert body == [
+        {"name": "Novels", "count": 2},
+        {"name": "Poetry", "count": 1},
+        {"name": "History", "count": 1},
+    ]
+
+
+def test_books_without_a_shelf_are_reported_as_unshelved(client: TestClient):
+    seed_book(client)  # seeded with no shelf
+    assert client.get("/api/shelves").json() == [{"name": "Unshelved", "count": 1}]
+
+
+def test_book_metadata_carries_author_shelf_and_provenance(client: TestClient):
+    store = client.app.state.store
+    store.save_book(
+        BookMeta(
+            id="bk9", title="Niebla", source_lang="Spanish", target_lang="English",
+            page_count=3, author="Unamuno, Miguel de", shelf="Novels",
+            source="gutenberg:49836",
+        ),
+        [],
+    )
+    book = client.get("/api/books/bk9").json()
+    assert book["author"] == "Unamuno, Miguel de"
+    assert book["shelf"] == "Novels"
+    assert book["source"] == "gutenberg:49836"
+
+
 @pytest.mark.parametrize("filename", ["notes.txt", "book.mobi", "noextension"])
 def test_upload_rejects_unsupported_file_types(client: TestClient, filename):
     r = client.post("/api/books", files={"file": (filename, b"data", "application/octet-stream")})

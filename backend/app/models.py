@@ -53,6 +53,10 @@ class BookMeta(BaseModel):
     target_lang: str
     page_count: int
     toc: list[TocEntry] = []
+    author: str | None = None
+    shelf: str | None = None  # themed shelf, see app.shelves
+    source: str | None = None  # provenance, e.g. "gutenberg:2000" — keeps
+    # re-imports idempotent and records where a book came from
 
 
 class Explanation(BaseModel):
