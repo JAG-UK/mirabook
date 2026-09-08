@@ -148,7 +148,7 @@ export default function Reader() {
     }
     return m
   }, [servingOffline])
-  useEffect(() => () => Object.values(blobUrls).forEach(URL.revokeObjectURL), [blobUrls])
+  useEffect(() => () => Object.values(blobUrls).forEach((u) => URL.revokeObjectURL(u)), [blobUrls])
   const imageSrc = useCallback((src: string) => blobUrls[src] ?? mediaUrl(src), [blobUrls])
 
   // Load the current page, then prefetch the next one.

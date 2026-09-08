@@ -1,0 +1,44 @@
+version: 2
+
+# Updates are grouped so a quiet week is one pull request rather than a dozen,
+# each of which would otherwise run all five CI jobs. Majors are kept separate
+# from the grouped minors and patches, because a major is the one that needs
+# reading before merging.
+updates:
+  # The actions used by the workflow itself.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns: ['*']
+        update-types: [minor, patch]
+
+  # Frontend. Dependabot reads pnpm-lock.yaml.
+  - package-ecosystem: npm
+    directory: /frontend
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      frontend-dev:
+        dependency-type: development
+        update-types: [minor, patch]
+      frontend-prod:
+        dependency-type: production
+        update-types: [minor, patch]
+
+  # Backend. Dependabot's uv support does not extend to uv.lock, so this
+  # tracks the constraints in pyproject.toml; `uv lock` still has to run to
+  # move the lockfile. A grouped bump landing with a stale lock is caught by
+  # CI, which resolves from the lockfile.
+  - package-ecosystem: pip
+    directory: /backend
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      backend:
+        patterns: ['*']
+        update-types: [minor, patch]
