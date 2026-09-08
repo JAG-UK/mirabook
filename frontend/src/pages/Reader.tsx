@@ -19,6 +19,7 @@ import InfoPopover from '../components/InfoPopover'
 import ProfileMenu from '../components/ProfileMenu'
 import SelectionMenu, { SelectionState } from '../components/SelectionMenu'
 import Spinner from '../components/Spinner'
+import Toggle from '../components/Toggle'
 import { sentenceAround } from '../lib/context'
 import { getProgress, saveProgress } from '../lib/progress'
 import { useProfile } from '../lib/profiles'
@@ -348,37 +349,24 @@ export default function Reader() {
           )}
 
           <div className="ml-auto flex items-center gap-2">
-            <button
-              onClick={() => {
-                // Switching to reading means "I am reading here now", so the
+            <Toggle
+              label="Peek"
+              tone="amber"
+              checked={peeking}
+              onChange={(next) => {
+                // Turning it off means "I am reading here now", so the
                 // bookmark moves to this page rather than staying behind.
-                if (peeking) saveProgress(active.id, bookId, page)
-                setMode(peeking ? 'reading' : 'peek')
+                if (!next) saveProgress(active.id, bookId, page)
+                setMode(next ? 'peek' : 'reading')
               }}
-              className={`rounded px-2.5 py-1 text-sm ${
-                peeking
-                  ? 'bg-amber-100 text-amber-900'
-                  : 'border border-stone-400 text-[color:var(--ink-soft)]'
-              }`}
-              title={
-                peeking
-                  ? 'Peeking — your place in the book is not being moved. Click to read from here.'
-                  : 'Reading — your place is saved as you go. Click to peek without moving it.'
-              }
-            >
-              {peeking ? 'Peeking' : 'Reading'}
-            </button>
-            <button
-              onClick={() => setBlurEnabled((b) => !b)}
-              className={`rounded px-2.5 py-1 text-sm ${
-                blurEnabled
-                  ? 'bg-stone-800 text-white'
-                  : 'border border-stone-400 text-[color:var(--ink-soft)]'
-              }`}
-              title="Blur the translation to avoid peeking"
-            >
-              {blurEnabled ? 'Blur on' : 'Blur off'}
-            </button>
+              title="Look around without moving your place in the book"
+            />
+            <Toggle
+              label="Blur"
+              checked={blurEnabled}
+              onChange={setBlurEnabled}
+              title="Hide the translation until you hover or tap it"
+            />
             <div className="flex items-center gap-1 text-sm text-[color:var(--ink-soft)]">
               <button
                 onClick={() => go(page - 1)}

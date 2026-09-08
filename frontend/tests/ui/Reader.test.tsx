@@ -233,9 +233,10 @@ describe('the anti-cheat blur', () => {
     const user = openReader()
     await onPage(1)
 
-    expect(screen.getByRole('button', { name: 'Blur on' })).toBeInTheDocument()
-    await user.click(screen.getByRole('button', { name: 'Blur on' }))
-    expect(screen.getByRole('button', { name: 'Blur off' })).toBeInTheDocument()
+    const blur = screen.getByRole('switch', { name: 'Blur' })
+    expect(blur).toBeChecked()
+    await user.click(blur)
+    expect(screen.getByRole('switch', { name: 'Blur' })).not.toBeChecked()
   })
 })
 
@@ -251,7 +252,7 @@ describe('peeking', () => {
   it('says it is peeking', async () => {
     openReader('?page=4')
     await onPage(4)
-    expect(screen.getByRole('button', { name: 'Peeking' })).toBeInTheDocument()
+    expect(screen.getByRole('switch', { name: 'Peek' })).toBeChecked()
   })
 
   it('leaves the reader’s place alone', async () => {
@@ -287,9 +288,9 @@ describe('peeking', () => {
     const user = openReader('?page=4')
     await onPage(4)
 
-    await user.click(screen.getByRole('button', { name: 'Peeking' }))
+    await user.click(screen.getByRole('switch', { name: 'Peek' }))
 
-    expect(screen.getByRole('button', { name: 'Reading' })).toBeInTheDocument()
+    expect(screen.getByRole('switch', { name: 'Peek' })).not.toBeChecked()
     expect(getProgress('p1', 'bk1')).toBe(4)
   })
 
@@ -297,9 +298,9 @@ describe('peeking', () => {
     bookmarkedAt(2)
     const user = openReader()
     await onPage(2)
-    expect(screen.getByRole('button', { name: 'Reading' })).toBeInTheDocument()
+    expect(screen.getByRole('switch', { name: 'Peek' })).not.toBeChecked()
 
-    await user.click(screen.getByRole('button', { name: 'Reading' }))
+    await user.click(screen.getByRole('switch', { name: 'Peek' }))
     await user.keyboard('{ArrowRight}')
     await onPage(3)
 
