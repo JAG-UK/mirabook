@@ -54,6 +54,10 @@ function db(): Promise<IDBPDatabase<Schema>> {
 const state = new Map<string, ReaderState>()
 const listeners = new Set<() => void>()
 let hydrated = false
+let version = 0
+
+/** Bumped on every change, so useSyncExternalStore has something to compare. */
+export const getVersion = () => version
 
 export const isHydrated = () => hydrated
 
@@ -62,7 +66,10 @@ export function subscribe(fn: () => void): () => void {
   listeners.add(fn)
   return () => listeners.delete(fn)
 }
-const notify = () => listeners.forEach((fn) => fn())
+const notify = () => {
+  version++
+  listeners.forEach((fn) => fn())
+}
 
 export function readerState(readerId: string): ReaderState {
   let s = state.get(readerId)

@@ -2,13 +2,18 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useProfile } from '../lib/profiles'
 import { AVATARS } from '../lib/types'
-import { countWords } from '../lib/vocab'
+import { listWords } from '../lib/vocab'
+import { dueCount } from '../lib/srs'
+import { useReaderData } from '../lib/useReaderData'
 
 export default function ProfileMenu() {
   const { profiles, active, setActive, addProfile, signOut } = useProfile()
   const [open, setOpen] = useState(false)
   const navigate = useNavigate()
-  const words = countWords(active.id)
+  useReaderData()
+  const saved = listWords(active.id)
+  const words = saved.length
+  const due = dueCount(saved)
 
   return (
     <div className="relative">
@@ -67,6 +72,20 @@ export default function ProfileMenu() {
               className="w-full px-3 py-2 text-left text-sm hover:bg-stone-50"
             >
               Saved words{words > 0 ? ` (${words})` : ''}
+            </button>
+            <button
+              onClick={() => {
+                setOpen(false)
+                navigate('/review')
+              }}
+              className="w-full px-3 py-2 text-left text-sm hover:bg-stone-50"
+            >
+              Review
+              {due > 0 && (
+                <span className="ml-1.5 rounded-full bg-amber-100 px-1.5 py-0.5 text-xs font-medium text-amber-800">
+                  {due}
+                </span>
+              )}
             </button>
             <button
               onClick={() => {

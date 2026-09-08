@@ -1,17 +1,16 @@
-import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useProfile } from '../lib/profiles'
-import { SavedWord, listWords, removeWord } from '../lib/vocab'
+import { dueCount } from '../lib/srs'
+import { useReaderData } from '../lib/useReaderData'
+import { listWords, removeWord } from '../lib/vocab'
 
 export default function SavedWords() {
   const { active } = useProfile()
   const navigate = useNavigate()
-  const [words, setWords] = useState<SavedWord[]>(() => listWords(active.id))
+  useReaderData()
+  const words = listWords(active.id)
 
-  function del(id: string) {
-    removeWord(active.id, id)
-    setWords(listWords(active.id))
-  }
+  const del = (id: string) => removeWord(active.id, id)
 
   return (
     <div className="mx-auto max-w-2xl px-5 py-8">
@@ -25,6 +24,19 @@ export default function SavedWords() {
         </button>
         <h1 className="font-serif text-2xl font-bold">Saved words</h1>
         <span className="text-stone-400">· {active.name}</span>
+        {words.length > 0 && (
+          <button
+            onClick={() => navigate('/review')}
+            className="ml-auto rounded-lg bg-stone-800 px-3 py-1.5 text-sm font-medium text-white hover:bg-stone-700"
+          >
+            Review
+            {dueCount(words) > 0 && (
+              <span className="ml-1.5 rounded-full bg-white/20 px-1.5 py-0.5 text-xs">
+                {dueCount(words)} due
+              </span>
+            )}
+          </button>
+        )}
       </header>
 
       {words.length === 0 ? (

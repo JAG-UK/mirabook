@@ -4,6 +4,7 @@ import ProfileGate from './components/ProfileGate'
 import { useProfileManager } from './lib/profiles'
 import Library from './pages/Library'
 import Reader from './pages/Reader'
+import Review from './pages/Review'
 import Settings from './pages/Settings'
 import SavedWords from './pages/SavedWords'
 
@@ -28,6 +29,7 @@ export default function App() {
         />
         <Route path="/settings" element={<Settings />} />
         <Route path="/words" element={<SavedWords />} />
+        <Route path="/review" element={<Review />} />
       </Routes>
     </ErrorBoundary>
   )
