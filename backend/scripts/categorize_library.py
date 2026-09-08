@@ -69,6 +69,10 @@ async def choose_shelf(provider: OllamaProvider, book: BookMeta, sample: str = "
         data = json.loads(await provider._chat(SYSTEM, user, as_json=True))
     except (json.JSONDecodeError, TypeError, ValueError):
         return None
+    except httpx.HTTPStatusError as e:
+        detail = " ".join(e.response.text.split())[:120]
+        print(f"      HTTP {e.response.status_code}: {detail}")
+        return None
     except httpx.HTTPError:
         # A timeout or a dropped connection must cost one book, not the run.
         return None
@@ -89,6 +93,7 @@ async def main_async(args) -> None:
         provider = OllamaProvider(
             settings.ollama_host, args.model or settings.ollama_model, 1, settings.ollama_timeout
         )
+        await provider.ensure_ready()
         print(f"Shelving {len(todo)} book(s) with {provider.model_id}…\n")
 
         shelved = failed = 0
@@ -123,7 +128,12 @@ def main() -> None:
     p.add_argument("--all", action="store_true", help="re-shelve every book")
     p.add_argument("--dry-run", action="store_true", help="print proposals, change nothing")
     p.add_argument("--model", help="Ollama model to ask (default: configured)")
-    asyncio.run(main_async(p.parse_args()))
+    try:
+        asyncio.run(main_async(p.parse_args()))
+    except RuntimeError as e:
+        raise SystemExit(f"\n{e}") from None
+    except KeyboardInterrupt:
+        raise SystemExit("\nInterrupted.") from None
 
 
 if __name__ == "__main__":

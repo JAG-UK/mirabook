@@ -65,6 +65,53 @@ class OllamaProvider(TranslationProvider):
             r.raise_for_status()
             return r.json()["message"]["content"].strip()
 
+    async def installed_models(self) -> list[str]:
+        """Everything this Ollama server has pulled locally."""
+        async with httpx.AsyncClient(timeout=15) as client:
+            r = await client.get(f"{self._host}/api/tags")
+            r.raise_for_status()
+            return [m["name"] for m in r.json().get("models", [])]
+
+    async def ensure_ready(self) -> None:
+        """Fail loudly, early, and with the fix — before a long batch job.
+
+        A model that is missing or broken otherwise shows up as one opaque
+        error per item, several hundred times over.
+        """
+        try:
+            available = await self.installed_models()
+        except httpx.HTTPError as e:
+            raise RuntimeError(
+                f"Cannot reach Ollama at {self._host} ({type(e).__name__}). "
+                "Start it with `ollama serve`, or set MIRABOOK_OLLAMA_HOST."
+            ) from e
+
+        if self._model not in available and f"{self._model}:latest" not in available:
+            names = sorted(available)
+            listed = ", ".join(names[:8]) or "none"
+            if len(names) > 8:
+                listed += f", … ({len(names)} in total)"
+            raise RuntimeError(
+                f"Ollama at {self._host} has no model {self._model!r}.\n"
+                f"  Pull it:   ollama pull {self._model}\n"
+                f"  Or choose: --model <name>, or set MIRABOOK_OLLAMA_MODEL\n"
+                f"  Installed: {listed}"
+            )
+
+        try:
+            await self._chat("Reply with the word OK.", "Ready?")
+        except httpx.HTTPStatusError as e:
+            raise RuntimeError(
+                f"Ollama accepted {self._model!r} but the test request failed: "
+                f"HTTP {e.response.status_code} — {e.response.text[:200]}"
+            ) from e
+        except httpx.HTTPError as e:
+            raise RuntimeError(
+                f"Ollama at {self._host} did not answer a test request "
+                f"({type(e).__name__}). If the model is large, raise "
+                "MIRABOOK_OLLAMA_TIMEOUT."
+            ) from e
+
     async def _translate_text(self, text: str, src: str, tgt: str) -> str:
         return await self._chat(TRANSLATE_SYSTEM.format(src=src, tgt=tgt), text)
 
