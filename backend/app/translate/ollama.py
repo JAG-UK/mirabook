@@ -16,6 +16,10 @@ from app.translate.base import (
 )
 
 
+class ModelUnavailable(RuntimeError):
+    """The configured model is not there. Actionable, so it is not a 500."""
+
+
 class OllamaProvider(TranslationProvider):
     """Talks to a local (or remote) Ollama server via its /api/chat endpoint."""
 
@@ -64,6 +68,15 @@ class OllamaProvider(TranslationProvider):
             payload["format"] = "json"
         async with httpx.AsyncClient(timeout=self._timeout) as client:
             r = await client.post(f"{self._host}/api/chat", json=payload)
+            if r.status_code == 404:
+                # Ollama answers 404 for a model it has not pulled. Raised as a
+                # traceback this reads as a server fault; it is a one-line fix,
+                # and the reader deserves to be told which one.
+                raise ModelUnavailable(
+                    f"Ollama at {self._host} has no model {self._model!r}. "
+                    f"Pull it with `ollama pull {self._model}`, or set "
+                    "MIRABOOK_OLLAMA_MODEL to one it has."
+                )
             r.raise_for_status()
             return r.json()["message"]["content"].strip()
 

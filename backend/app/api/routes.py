@@ -36,14 +36,26 @@ def _settings(req: Request):
 
 @router.get("/health")
 async def health(req: Request):
+    """Provider status, including whether the configured model is actually
+    available — so a missing model shows up here rather than the first time
+    somebody opens a book."""
     s = _settings(req)
-    return {
+    provider = get_provider()
+    body = {
         "status": "ok",
         "provider": s.provider,
-        "model": get_provider().model_id,
+        "model": provider.model_id,
         "source_lang": s.source_lang,
         "target_lang": s.target_lang,
     }
+    ready = getattr(provider, "ensure_ready", None)
+    if ready:
+        try:
+            await ready()
+        except RuntimeError as e:
+            body["status"] = "model unavailable"
+            body["detail"] = str(e)
+    return body
 
 
 @router.get("/books", response_model=list[BookMeta])

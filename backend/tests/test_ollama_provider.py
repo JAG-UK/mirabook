@@ -7,7 +7,7 @@ does not raise, it just quietly produces worse translations.
 import httpx
 import pytest
 
-from app.translate.ollama import OllamaProvider
+from app.translate.ollama import ModelUnavailable, OllamaProvider
 
 
 def provider(model: str) -> OllamaProvider:
@@ -55,6 +55,48 @@ def test_other_families_keep_the_conventional_system_message(model):
 def test_model_name_matching_is_case_insensitive():
     assert provider("Gemma2:27B")._needs_folded_system() is True
     assert provider("Gemma4:31B")._needs_folded_system() is False
+
+
+# --- a model that was never pulled ---
+
+
+class FakePost:
+    """Stands in for httpx.AsyncClient, answering one canned response."""
+
+    def __init__(self, status: int, body: dict | None = None):
+        self._status, self._body = status, body or {}
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *exc):
+        return False
+
+    async def post(self, url, json=None):
+        return FakeResponse(self._body, self._status, str(self._body))
+
+
+async def test_a_missing_model_is_named_along_with_how_to_get_it(monkeypatch):
+    """Ollama answers 404 for a model it has not pulled. Left as an
+    HTTPStatusError this surfaces as a traceback and a bare 500."""
+    monkeypatch.setattr(
+        "app.translate.ollama.httpx.AsyncClient",
+        lambda **kw: FakePost(404, {"error": "model 'gemma4:31b' not found"}),
+    )
+    with pytest.raises(ModelUnavailable) as e:
+        await provider("gemma4:31b")._chat("system", "user")
+
+    assert "gemma4:31b" in str(e.value)
+    assert "ollama pull gemma4:31b" in str(e.value)
+    assert "MIRABOOK_OLLAMA_MODEL" in str(e.value)
+
+
+async def test_other_failures_are_still_raised_as_they_were(monkeypatch):
+    monkeypatch.setattr(
+        "app.translate.ollama.httpx.AsyncClient", lambda **kw: FakePost(500)
+    )
+    with pytest.raises(httpx.HTTPStatusError):
+        await provider("gemma4:31b")._chat("system", "user")
 
 
 # --- preflight ---

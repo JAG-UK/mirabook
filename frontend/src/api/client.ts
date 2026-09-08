@@ -119,9 +119,20 @@ export interface Alternative {
   note?: string | null
 }
 
+/**
+ * Turn a failed response into an error worth showing.
+ *
+ * The backend explains what went wrong — which model is missing, which shelf
+ * does not exist — and "500 Internal Server Error" throws all of that away.
+ */
+async function failure(r: Response): Promise<Error> {
+  const detail = await r.json().catch(() => null)
+  return new Error(detail?.detail ?? `${r.status} ${r.statusText}`)
+}
+
 async function getJSON<T>(path: string): Promise<T> {
   const r = await fetch(`${BASE}${path}`)
-  if (!r.ok) throw new Error(`${r.status} ${r.statusText}`)
+  if (!r.ok) throw await failure(r)
   return r.json() as Promise<T>
 }
 
@@ -131,7 +142,7 @@ async function postJSON<T>(path: string, body: unknown): Promise<T> {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   })
-  if (!r.ok) throw new Error(`${r.status} ${r.statusText}`)
+  if (!r.ok) throw await failure(r)
   return r.json() as Promise<T>
 }
 
@@ -141,12 +152,7 @@ async function patchJSON<T>(path: string, body: unknown): Promise<T> {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   })
-  if (!r.ok) {
-    // The backend explains a rejected edit ("'Bangers' is not one of the
-    // shelves"); that is worth showing rather than a bare status code.
-    const detail = await r.json().catch(() => null)
-    throw new Error(detail?.detail ?? `${r.status} ${r.statusText}`)
-  }
+  if (!r.ok) throw await failure(r)
   return r.json() as Promise<T>
 }
 

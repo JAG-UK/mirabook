@@ -7,6 +7,7 @@ from fastapi.testclient import TestClient
 from app.api import routes
 from app.config import get_settings
 from app.models import Block, BlockType, BookMeta, TocEntry
+from app.translate.ollama import ModelUnavailable
 from tests.conftest import SAMPLE, StubProvider
 
 
@@ -49,6 +50,40 @@ def test_health_reports_provider_and_languages(client: TestClient):
     assert body["model"] == "stub:v1"
     assert body["source_lang"] == "Spanish"
     assert body["target_lang"] == "English"
+
+
+def test_a_missing_model_is_a_503_the_reader_can_act_on(client: TestClient, provider):
+    """Not a 500: it is a configuration problem with a one-line fix, and the
+    reader should be told which model rather than shown a traceback."""
+    seed_book(client)
+
+    async def missing(*_args, **_kwargs):
+        raise ModelUnavailable("Ollama at http://x has no model 'gemma4:31b'. Pull it with…")
+
+    provider._translate_text = missing
+    r = client.get("/api/books/bk1/pages/1")
+
+    assert r.status_code == 503
+    assert "gemma4:31b" in r.json()["detail"]
+
+
+def test_health_says_when_the_model_is_not_there(client: TestClient, provider):
+    async def not_ready():
+        raise RuntimeError("Ollama at http://x has no model 'gemma4:31b'")
+
+    provider.ensure_ready = not_ready
+    body = client.get("/api/health").json()
+
+    assert body["status"] == "model unavailable"
+    assert "gemma4:31b" in body["detail"]
+
+
+def test_health_is_ok_when_the_model_answers(client: TestClient, provider):
+    async def ready():
+        return None
+
+    provider.ensure_ready = ready
+    assert client.get("/api/health").json()["status"] == "ok"
 
 
 # --- library ---
