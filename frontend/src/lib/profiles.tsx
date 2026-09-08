@@ -1,27 +1,18 @@
-import { createContext, ReactNode, useContext, useEffect, useState } from 'react'
+import { createContext, ReactNode, useContext, useEffect, useRef, useState } from 'react'
+import { Reader, saveReaders } from '../api/client'
+import { cacheReaders, getCachedReaders } from './offline'
+import { alreadyMigrated, migrateLocalStorage } from './migrate'
+import { hydrate, newId, nowIso } from './readerStore'
+import { startSync } from './sync'
 import { DEFAULT_SETTINGS, Profile, Settings } from './types'
 
-// Profiles (the list of "readers") persist in localStorage so they're
-// remembered. The *active selection* lives in sessionStorage and starts empty,
-// so a new visitor is asked to choose rather than landing in someone else's
-// profile. It persists across reloads within a browser session.
-const PROFILES_KEY = 'mirabook:profiles'
+// Readers live on the server, so a phone and a tablet show the same people and
+// carry the same bookmarks and saved words. They are still not accounts: the
+// app has one password, and this is the "who's reading?" picker.
+//
+// The *active selection* stays in sessionStorage, which is right — it is a
+// property of this device and this sitting, not of the reader.
 const ACTIVE_KEY = 'mirabook:activeId'
-
-function rid(): string {
-  return Math.random().toString(36).slice(2, 9)
-}
-
-function loadProfiles(): Profile[] {
-  try {
-    const raw = JSON.parse(localStorage.getItem(PROFILES_KEY) || 'null')
-    // Accept both the new array shape and the older { profiles, activeId } shape.
-    const list: Profile[] = Array.isArray(raw) ? raw : (raw?.profiles ?? [])
-    return list.map((p) => ({ ...p, settings: { ...DEFAULT_SETTINGS, ...p.settings } }))
-  } catch {
-    return []
-  }
-}
 
 function loadActiveId(): string | null {
   try {
@@ -30,6 +21,30 @@ function loadActiveId(): string | null {
     return null
   }
 }
+
+const readerToProfile = (r: Reader): Profile => {
+  let settings: Partial<Settings> = {}
+  try {
+    settings = JSON.parse(r.settings_json || '{}') as Partial<Settings>
+  } catch {
+    /* a reader with unreadable settings still reads, with the defaults */
+  }
+  return {
+    id: r.id,
+    name: r.name,
+    avatar: r.avatar,
+    settings: { ...DEFAULT_SETTINGS, ...settings },
+  }
+}
+
+const profileToReader = (p: Profile): Reader => ({
+  id: p.id,
+  name: p.name,
+  avatar: p.avatar,
+  settings_json: JSON.stringify(p.settings),
+  updated_at: nowIso(),
+  deleted_at: null,
+})
 
 interface PatchProfile {
   name?: string
@@ -50,16 +65,51 @@ interface Ctx {
 const ProfileContext = createContext<Ctx | null>(null)
 
 export function ProfileProvider({ children }: { children: ReactNode }) {
-  const [profiles, setProfiles] = useState<Profile[]>(loadProfiles)
+  const [profiles, setProfiles] = useState<Profile[]>([])
   const [activeId, setActiveId] = useState<string | null>(loadActiveId)
+  const [ready, setReady] = useState(false)
+  const tombstones = useRef<Reader[]>([])
 
+  // Load everything this device knows before rendering anything that reads it.
+  // A component that asks for a bookmark too early gets page 1 and has no way
+  // to correct itself afterwards.
   useEffect(() => {
-    try {
-      localStorage.setItem(PROFILES_KEY, JSON.stringify(profiles))
-    } catch {
-      /* ignore */
+    let cancelled = false
+    ;(async () => {
+      await hydrate()
+
+      let known: Reader[] = await getCachedReaders()
+      if (!alreadyMigrated()) {
+        try {
+          known = await migrateLocalStorage()
+        } catch {
+          /* offline: the records are queued in the mirror and go up later */
+        }
+      }
+
+      // Pushing what we hold and taking the answer settles both directions in
+      // one call — the server merges by id and hands back the truth.
+      try {
+        known = await saveReaders(known)
+        void cacheReaders(known)
+      } catch {
+        /* offline: the cached list is what we have, and it is enough to read */
+      }
+
+      if (cancelled) return
+      setProfiles(known.filter((r) => !r.deleted_at).map(readerToProfile))
+      setReady(true)
+    })()
+    return () => {
+      cancelled = true
     }
-  }, [profiles])
+  }, [])
+
+  // Keep the chosen reader in step for as long as the app is open.
+  useEffect(() => {
+    if (!ready || !activeId) return
+    return startSync(activeId)
+  }, [ready, activeId])
 
   useEffect(() => {
     try {
@@ -72,24 +122,30 @@ export function ProfileProvider({ children }: { children: ReactNode }) {
 
   const active = profiles.find((p) => p.id === activeId) ?? null
 
-  const setActive = (id: string) => setActiveId(id)
-  const signOut = () => setActiveId(null)
+  /** Apply locally, then tell the server. A failed push stays visible here and
+   *  goes up whenever the next change succeeds. */
+  function commit(next: Profile[]): void {
+    setProfiles(next)
+    const readers = [...next.map(profileToReader), ...tombstones.current]
+    void cacheReaders(readers)
+    saveReaders(readers).catch(() => {})
+  }
 
   const addProfile = (name: string, avatar: string): Profile => {
     const p: Profile = {
-      id: rid(),
+      id: newId(),
       name: name.trim() || 'Reader',
       avatar,
       settings: { ...DEFAULT_SETTINGS },
     }
-    setProfiles((ps) => [...ps, p])
+    commit([...profiles, p])
     setActiveId(p.id)
     return p
   }
 
   const updateActive = (patch: PatchProfile) =>
-    setProfiles((ps) =>
-      ps.map((p) =>
+    commit(
+      profiles.map((p) =>
         p.id === activeId
           ? {
               ...p,
@@ -102,13 +158,27 @@ export function ProfileProvider({ children }: { children: ReactNode }) {
     )
 
   const removeProfile = (id: string) => {
-    setProfiles((ps) => ps.filter((p) => p.id !== id))
+    const gone = profiles.find((p) => p.id === id)
+    // A tombstone, not a deletion: another device has to learn they are gone,
+    // or it will simply tell us about them again.
+    if (gone) tombstones.current.push({ ...profileToReader(gone), deleted_at: nowIso() })
+    commit(profiles.filter((p) => p.id !== id))
     if (activeId === id) setActiveId(null)
   }
 
+  if (!ready) return null
+
   return (
     <ProfileContext.Provider
-      value={{ profiles, active, setActive, signOut, addProfile, updateActive, removeProfile }}
+      value={{
+        profiles,
+        active,
+        setActive: setActiveId,
+        signOut: () => setActiveId(null),
+        addProfile,
+        updateActive,
+        removeProfile,
+      }}
     >
       {children}
     </ProfileContext.Provider>

@@ -1,50 +1,52 @@
-// Per-profile saved words / phrases (vocabulary list), in localStorage.
+// Per-reader saved words and phrases.
 
-import { SavedWord } from './types'
+import { SavedWord } from '../api/client'
+import { deleteWord, liveWords, newId, nowIso, putWord } from './readerStore'
 
-const KEY = 'mirabook:vocab'
+export type { SavedWord }
 
-type Store = Record<string, SavedWord[]> // profileId -> words
+/** What the reader hands over when saving; the rest is filled in here. */
+export interface NewWord {
+  text: string
+  context: string
+  kind: string
+  explanation: string
+  gloss?: string | null
+  bookId: string
+  bookTitle: string
+}
 
-function load(): Store {
-  try {
-    return JSON.parse(localStorage.getItem(KEY) || '{}') as Store
-  } catch {
-    return {}
+export function listWords(readerId: string): SavedWord[] {
+  return liveWords(readerId).sort((a, b) => b.created_at.localeCompare(a.created_at))
+}
+
+export function addWord(readerId: string, w: NewWord): SavedWord {
+  const word: SavedWord = {
+    id: newId(),
+    text: w.text,
+    context: w.context,
+    kind: w.kind,
+    explanation: w.explanation,
+    gloss: w.gloss ?? null,
+    book_id: w.bookId,
+    book_title: w.bookTitle,
+    created_at: nowIso(),
+    // Never reviewed, so due immediately — the review screen paces the
+    // backlog rather than the data pretending it is spread out.
+    due_at: nowIso(),
+    interval_days: 0,
+    ease: 2.5,
+    reps: 0,
+    lapses: 0,
   }
-}
-
-function save(s: Store): void {
-  try {
-    localStorage.setItem(KEY, JSON.stringify(s))
-  } catch {
-    /* ignore */
-  }
-}
-
-function rid(): string {
-  return Math.random().toString(36).slice(2, 10)
-}
-
-export function listWords(profileId: string): SavedWord[] {
-  return [...(load()[profileId] ?? [])].sort((a, b) => b.at - a.at)
-}
-
-export function addWord(profileId: string, w: Omit<SavedWord, 'id' | 'at'>): SavedWord {
-  const s = load()
-  const list = s[profileId] ?? []
-  const word: SavedWord = { ...w, id: rid(), at: Date.now() }
-  s[profileId] = [...list, word]
-  save(s)
+  putWord(readerId, word)
   return word
 }
 
-export function removeWord(profileId: string, id: string): void {
-  const s = load()
-  s[profileId] = (s[profileId] ?? []).filter((w) => w.id !== id)
-  save(s)
+export function removeWord(readerId: string, id: string): void {
+  deleteWord(readerId, id)
 }
 
-export function countWords(profileId: string): number {
-  return (load()[profileId] ?? []).length
+export function countWords(readerId: string): number {
+  return liveWords(readerId).length
 }

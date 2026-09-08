@@ -1,6 +1,7 @@
 import '@testing-library/jest-dom/vitest'
 import { cleanup } from '@testing-library/react'
-import { afterEach } from 'vitest'
+import { afterEach, beforeEach } from 'vitest'
+import { __reset } from '../src/lib/readerStore'
 
 // jsdom implements neither createObjectURL nor revokeObjectURL. The reader
 // revokes blob URLs on unmount, and Array.prototype.forEach throws when handed
@@ -11,3 +12,10 @@ if (!URL.revokeObjectURL) URL.revokeObjectURL = () => {}
 
 // Unmount between tests so queries cannot match a previous render.
 afterEach(cleanup)
+
+// The reader mirror lives in a module-level map that outlives a render.
+beforeEach(() => {
+  localStorage.clear()
+  sessionStorage.clear()
+  __reset()
+})

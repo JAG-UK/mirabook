@@ -244,6 +244,7 @@ export default function Reader() {
           context,
           kind,
           explanation: ex.text,
+          gloss: ex.gloss, // the answer side of the review card
           bookId,
           bookTitle: meta?.title ?? '',
         })

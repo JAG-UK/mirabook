@@ -1,40 +1,17 @@
-// Per-profile reading position (bookmark), persisted in localStorage.
+// Per-reader reading position (bookmark).
+//
+// The shape of these calls has not changed — they are still synchronous — but
+// they now read and write the mirror rather than localStorage, so a bookmark
+// set on the tablet shows up on the phone.
 
-const KEY = 'mirabook:progress'
+import { putProgress, readerState } from './readerStore'
 
-interface Entry {
-  page: number
-  at: number
-}
-// profileId -> bookId -> entry
-type Store = Record<string, Record<string, Entry>>
-
-function load(): Store {
-  try {
-    return JSON.parse(localStorage.getItem(KEY) || '{}') as Store
-  } catch {
-    return {}
-  }
+export function getProgress(readerId: string, bookId: string): number {
+  return readerState(readerId).progress[bookId]?.page ?? 1
 }
 
-function save(s: Store): void {
-  try {
-    localStorage.setItem(KEY, JSON.stringify(s))
-  } catch {
-    /* ignore */
-  }
-}
-
-export function getProgress(profileId: string, bookId: string): number {
-  return load()[profileId]?.[bookId]?.page ?? 1
-}
-
-export function saveProgress(profileId: string, bookId: string, page: number): void {
-  const s = load()
-  const forProfile = s[profileId] ?? {}
-  forProfile[bookId] = { page, at: Date.now() }
-  s[profileId] = forProfile
-  save(s)
+export function saveProgress(readerId: string, bookId: string, page: number): void {
+  putProgress(readerId, bookId, page)
 }
 
 export interface ProgressItem {
@@ -43,7 +20,10 @@ export interface ProgressItem {
   at: number
 }
 
-export function listProgress(profileId: string): ProgressItem[] {
-  const forProfile = load()[profileId] ?? {}
-  return Object.entries(forProfile).map(([bookId, e]) => ({ bookId, ...e }))
+export function listProgress(readerId: string): ProgressItem[] {
+  return Object.values(readerState(readerId).progress).map((p) => ({
+    bookId: p.book_id,
+    page: p.page,
+    at: Date.parse(p.updated_at) || 0,
+  }))
 }

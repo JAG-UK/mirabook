@@ -4,7 +4,7 @@
 // IndexedDB is unavailable — it just behaves as online-only.
 
 import { DBSchema, IDBPDatabase, openDB } from 'idb'
-import { BookMeta, PageData, Shelf, mediaUrl, translatePages } from '../api/client'
+import { BookMeta, PageData, Reader, Shelf, mediaUrl, translatePages } from '../api/client'
 
 export interface OfflineBook {
   bookId: string
@@ -70,6 +70,22 @@ export async function cacheShelves(shelves: Shelf[]): Promise<void> {
 export async function getCachedShelves(): Promise<Shelf[]> {
   try {
     return ((await (await db()).get('kv', 'shelves')) as Shelf[]) ?? []
+  } catch {
+    return []
+  }
+}
+
+export async function cacheReaders(readers: Reader[]): Promise<void> {
+  try {
+    await (await db()).put('kv', readers, 'readers')
+  } catch {
+    /* ignore */
+  }
+}
+
+export async function getCachedReaders(): Promise<Reader[]> {
+  try {
+    return ((await (await db()).get('kv', 'readers')) as Reader[]) ?? []
   } catch {
     return []
   }

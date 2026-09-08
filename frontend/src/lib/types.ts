@@ -17,17 +17,6 @@ export interface Profile {
   settings: Settings
 }
 
-export interface SavedWord {
-  id: string
-  text: string
-  context: string
-  kind: string // grammar | idiom
-  explanation: string
-  bookId: string
-  bookTitle: string
-  at: number
-}
-
 export const DEFAULT_SETTINGS: Settings = {
   font: 'serif',
   theme: 'paper',

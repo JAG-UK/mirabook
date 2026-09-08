@@ -54,6 +54,64 @@ export interface Shelf {
 export interface Explanation {
   kind: string
   text: string
+  /** A few words for the back of a review card. */
+  gloss?: string | null
+}
+
+// --- reader-owned records ---------------------------------------------
+//
+// These mirror the server's shape exactly, snake_case included, so nothing
+// has to be translated on the way in or out. Ids are generated here, which is
+// what lets a record be created offline and keep its identity.
+
+export interface Reader {
+  id: string
+  name: string
+  avatar: string
+  settings_json: string
+  updated_at: string
+  deleted_at?: string | null
+}
+
+export interface ReadingProgress {
+  book_id: string
+  page: number
+  updated_at: string
+}
+
+export interface Favourite {
+  book_id: string
+  created_at: string
+  deleted_at?: string | null
+}
+
+export interface SavedWord {
+  id: string
+  text: string
+  context: string
+  kind: string
+  explanation: string
+  gloss?: string | null
+  book_id: string
+  book_title: string
+  created_at: string
+  deleted_at?: string | null
+  due_at?: string | null
+  interval_days: number
+  ease: number
+  reps: number
+  lapses: number
+  reviewed_at?: string | null
+}
+
+export interface SyncPayload {
+  progress: ReadingProgress[]
+  favourites: Favourite[]
+  words: SavedWord[]
+}
+
+export interface SyncResponse extends SyncPayload {
+  now: string
 }
 
 export interface Alternative {
@@ -125,6 +183,27 @@ export async function uploadBook(file: File): Promise<BookMeta> {
   if (!r.ok) throw new Error(`${r.status} ${r.statusText}`)
   return r.json() as Promise<BookMeta>
 }
+
+export const listReaders = () => getJSON<Reader[]>('/api/readers')
+
+async function putJSON<T>(path: string, body: unknown): Promise<T> {
+  const r = await fetch(`${BASE}${path}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+  if (!r.ok) throw new Error(`${r.status} ${r.statusText}`)
+  return r.json() as Promise<T>
+}
+
+export const saveReaders = (readers: Reader[]) => putJSON<Reader[]>('/api/readers', readers)
+
+/** One round trip: send what changed, receive everything since `since`. */
+export const syncReader = (readerId: string, since: string | null, payload: SyncPayload) =>
+  postJSON<SyncResponse>(
+    `/api/readers/${readerId}/sync${since ? `?since=${encodeURIComponent(since)}` : ''}`,
+    payload,
+  )
 
 export const explain = (text: string, context: string, kind: 'grammar' | 'idiom') =>
   postJSON<Explanation>('/api/explain', { text, context, kind })

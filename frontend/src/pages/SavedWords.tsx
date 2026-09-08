@@ -1,8 +1,7 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useProfile } from '../lib/profiles'
-import { SavedWord } from '../lib/types'
-import { listWords, removeWord } from '../lib/vocab'
+import { SavedWord, listWords, removeWord } from '../lib/vocab'
 
 export default function SavedWords() {
   const { active } = useProfile()
@@ -56,9 +55,10 @@ export default function SavedWords() {
               {w.context && (
                 <p className="mt-1 text-sm italic text-stone-500">“{w.context}”</p>
               )}
+              {w.gloss && <p className="mt-2 text-stone-800">{w.gloss}</p>}
               <p className="mt-2 text-sm leading-relaxed text-stone-700">{w.explanation}</p>
-              {w.bookTitle && (
-                <p className="mt-2 text-xs text-stone-400">from {w.bookTitle}</p>
+              {w.book_title && (
+                <p className="mt-2 text-xs text-stone-400">from {w.book_title}</p>
               )}
             </li>
           ))}

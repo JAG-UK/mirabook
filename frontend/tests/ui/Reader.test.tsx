@@ -1,12 +1,15 @@
 // The reader: the app's most intricate screen, and until now its least
 // tested. Page cache, prefetch, bookmarks, keyboard paging and a fallback to a
 // downloaded copy when the backend disappears mid-session.
-import { render, screen, waitFor, within } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { BookMeta, PageData } from '../../src/api/client'
 import { ProfileProvider } from '../../src/lib/profiles'
+import { getProgress } from '../../src/lib/progress'
+import { listWords } from '../../src/lib/vocab'
+import { putProgress } from '../../src/lib/readerStore'
 import { DEFAULT_SETTINGS } from '../../src/lib/types'
 import Reader from '../../src/pages/Reader'
 
@@ -17,6 +20,9 @@ vi.mock('../../src/api/client', async (importOriginal) => ({
   explain: vi.fn(),
   alternatives: vi.fn(),
   mediaUrl: (src: string) => `http://backend${src}`,
+  // The provider settles the reader list before it renders anything.
+  saveReaders: vi.fn(),
+  syncReader: vi.fn(),
 }))
 vi.mock('../../src/lib/offline', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../src/lib/offline')>()),
@@ -28,6 +34,17 @@ const offline = await import('../../src/lib/offline')
 const getBook = vi.mocked(client.getBook)
 const getPage = vi.mocked(client.getPage)
 const getOfflineBook = vi.mocked(offline.getOfflineBook)
+const saveReaders = vi.mocked(client.saveReaders)
+const syncReader = vi.mocked(client.syncReader)
+
+const READER = {
+  id: 'p1',
+  name: 'Jon',
+  avatar: '📖',
+  settings_json: JSON.stringify(DEFAULT_SETTINGS),
+  updated_at: '2026-09-01T10:00:00Z',
+  deleted_at: null,
+}
 
 const PROFILE = { id: 'p1', name: 'Jon', avatar: '📖', settings: DEFAULT_SETTINGS }
 
@@ -66,11 +83,11 @@ function openReader() {
 const onPage = (n: number) => screen.findByText(`Página ${n} en español`)
 
 beforeEach(() => {
-  localStorage.clear()
-  sessionStorage.clear()
-  // A chosen reader, as the profile gate would have left things.
-  localStorage.setItem('mirabook:profiles', JSON.stringify([PROFILE]))
+  // A reader already chosen on this device, as the picker would have left it.
+  localStorage.setItem('mirabook:migrated', '1')
   sessionStorage.setItem('mirabook:activeId', PROFILE.id)
+  saveReaders.mockResolvedValue([READER])
+  syncReader.mockResolvedValue({ now: '2026-09-01T10:00:00Z', progress: [], favourites: [], words: [] })
 
   getBook.mockResolvedValue(META)
   getPage.mockImplementation(async (_id, n) => pageData(n))
@@ -92,20 +109,14 @@ describe('opening a book', () => {
   })
 
   it('resumes where this reader left off', async () => {
-    localStorage.setItem(
-      'mirabook:progress',
-      JSON.stringify({ p1: { bk1: { page: 3, at: Date.now() } } }),
-    )
+    putProgress('p1', 'bk1', 3)
     openReader()
     expect(await onPage(3)).toBeInTheDocument()
   })
 
   it('clamps a bookmark that is past the end of the book', async () => {
     // A book re-ingested shorter than it was should not open on nothing.
-    localStorage.setItem(
-      'mirabook:progress',
-      JSON.stringify({ p1: { bk1: { page: 99, at: Date.now() } } }),
-    )
+    putProgress('p1', 'bk1', 99)
     openReader()
     expect(await onPage(5)).toBeInTheDocument()
   })
@@ -149,10 +160,7 @@ describe('turning pages', () => {
   })
 
   it('will not go past the last page', async () => {
-    localStorage.setItem(
-      'mirabook:progress',
-      JSON.stringify({ p1: { bk1: { page: 5, at: Date.now() } } }),
-    )
+    putProgress('p1', 'bk1', 5)
     const user = openReader()
     await onPage(5)
     await user.keyboard('{ArrowRight}')
@@ -166,10 +174,7 @@ describe('turning pages', () => {
     await user.keyboard('{ArrowRight}')
     await onPage(2)
 
-    await waitFor(() => {
-      const stored = JSON.parse(localStorage.getItem('mirabook:progress')!)
-      expect(stored.p1.bk1.page).toBe(2)
-    })
+    await waitFor(() => expect(getProgress('p1', 'bk1')).toBe(2))
   })
 
   it('fetches each page once, however often you turn back to it', async () => {
@@ -192,10 +197,7 @@ describe('turning pages', () => {
   })
 
   it('does not prefetch past the end of the book', async () => {
-    localStorage.setItem(
-      'mirabook:progress',
-      JSON.stringify({ p1: { bk1: { page: 5, at: Date.now() } } }),
-    )
+    putProgress('p1', 'bk1', 5)
     openReader()
     await onPage(5)
     await waitFor(() => expect(getPage).toHaveBeenCalled())
@@ -234,6 +236,62 @@ describe('the anti-cheat blur', () => {
     expect(screen.getByRole('button', { name: 'Blur on' })).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: 'Blur on' }))
     expect(screen.getByRole('button', { name: 'Blur off' })).toBeInTheDocument()
+  })
+})
+
+describe('saving a phrase', () => {
+  /**
+   * Drive the drag-select path.
+   *
+   * jsdom has no real selection: getSelection() returns an object whose
+   * toString() is always empty and whose ranges have no geometry, so the
+   * reader's handler bails before the menu can appear. Standing in a selection
+   * is the only way to exercise this from a test.
+   */
+  function selecting(phrase: string) {
+    vi.spyOn(window, 'getSelection').mockReturnValue({
+      toString: () => phrase,
+      rangeCount: 1,
+      getRangeAt: () => ({
+        getBoundingClientRect: () => ({ left: 100, width: 40, top: 200 }),
+      }),
+    } as unknown as Selection)
+  }
+
+  it('keeps the gloss, which is what a review card asks first', async () => {
+    vi.mocked(client.explain).mockResolvedValue({
+      kind: 'idiom',
+      text: 'A fixed expression meaning to be indirect.',
+      gloss: "don't beat about the bush",
+    })
+    const user = openReader()
+    const source = await onPage(1)
+
+    selecting('Página 1')
+    fireEvent.mouseUp(source)
+
+    await user.click(await screen.findByRole('button', { name: /explain idiom/i }))
+    await user.click(await screen.findByRole('button', { name: /save to words/i }))
+
+    const saved = listWords('p1')
+    expect(saved).toHaveLength(1)
+    expect(saved[0].gloss).toBe("don't beat about the bush")
+    expect(saved[0].text).toBe('Página 1')
+    expect(saved[0].book_title).toBe('Don Quijote')
+  })
+
+  it('saves a word even when the model offered no gloss', async () => {
+    vi.mocked(client.explain).mockResolvedValue({ kind: 'grammar', text: 'A verb.', gloss: null })
+    const user = openReader()
+    const source = await onPage(1)
+
+    selecting('Página 1')
+    fireEvent.mouseUp(source)
+
+    await user.click(await screen.findByRole('button', { name: /explain grammar/i }))
+    await user.click(await screen.findByRole('button', { name: /save to words/i }))
+
+    expect(listWords('p1')[0].gloss).toBeNull()
   })
 })
 
