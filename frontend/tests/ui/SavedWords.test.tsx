@@ -1,10 +1,12 @@
 import { render, screen } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { SavedWord } from '../../src/api/client'
 import { ProfileProvider } from '../../src/lib/profiles'
 import { putWord } from '../../src/lib/readerStore'
 import { DEFAULT_SETTINGS } from '../../src/lib/types'
+import Review from '../../src/pages/Review'
 import SavedWords from '../../src/pages/SavedWords'
 
 vi.mock('../../src/api/client', async (importOriginal) => ({
@@ -46,14 +48,17 @@ function word(over: Partial<SavedWord> = {}): SavedWord {
 function openWords(words: SavedWord[] = [word()]) {
   for (const w of words) putWord('p1', w)
   render(
-    <MemoryRouter initialEntries={['/words']}>
+    <MemoryRouter initialEntries={['/', '/words']}>
       <ProfileProvider>
         <Routes>
+          <Route path="/" element={<p>the library</p>} />
           <Route path="/words" element={<SavedWords />} />
+          <Route path="/review" element={<Review />} />
         </Routes>
       </ProfileProvider>
     </MemoryRouter>,
   )
+  return userEvent.setup()
 }
 
 beforeEach(() => {
@@ -104,6 +109,29 @@ describe('the saved words list', () => {
 
     expect(await screen.findByText(/En esa escuela aprenderá encantamientos/)).toBeInTheDocument()
     expect(screen.queryByText(/ISBN|Copyright|Impreso/)).not.toBeInTheDocument()
+  })
+
+  it('goes back to the library, not wherever you came from', async () => {
+    const user = openWords()
+    await screen.findByText('aprenderá encantamientos')
+    await user.click(screen.getByRole('button', { name: /back to library/i }))
+    expect(screen.getByText('the library')).toBeInTheDocument()
+  })
+
+  it('does not trap the reader between words and review', async () => {
+    // Review's back is a push, so a Words back button that popped history
+    // landed on Review again — an inescapable loop with the library buried.
+    const user = openWords()
+    await screen.findByText('aprenderá encantamientos')
+
+    await user.click(screen.getByRole('button', { name: /^review/i }))
+    await screen.findByRole('button', { name: /show answer/i })
+
+    await user.click(screen.getByRole('button', { name: /back to saved words/i }))
+    await screen.findByText('aprenderá encantamientos')
+
+    await user.click(screen.getByRole('button', { name: /back to library/i }))
+    expect(screen.getByText('the library')).toBeInTheDocument()
   })
 
   it('says what to do when nothing has been saved', async () => {

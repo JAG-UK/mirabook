@@ -227,7 +227,12 @@ function Shell({
   return (
     <div className="mx-auto max-w-xl px-5 py-8">
       <header className="mb-6 flex items-center gap-3">
-        <button onClick={onBack} className="text-stone-500 hover:text-stone-800" title="Back">
+        <button
+          onClick={onBack}
+          className="text-stone-500 hover:text-stone-800"
+          title="Back to saved words"
+          aria-label="Back to saved words"
+        >
           ←
         </button>
         <h1 className="font-serif text-2xl font-bold">Review</h1>

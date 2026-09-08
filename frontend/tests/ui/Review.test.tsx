@@ -225,7 +225,8 @@ describe('finishing', () => {
     const user = openReview()
     await user.click(await reveal())
     await user.click(screen.getByRole('button', { name: /^Good/ }))
-    await user.click(await screen.findByRole('button', { name: /back to saved words/i }))
+    // The header arrow carries the same label, so match the button's own text.
+    await user.click(await screen.findByText('Back to saved words'))
     expect(screen.getByText('saved words')).toBeInTheDocument()
   })
 

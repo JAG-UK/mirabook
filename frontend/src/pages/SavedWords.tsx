@@ -19,9 +19,10 @@ export default function SavedWords() {
     <div className="mx-auto max-w-2xl px-5 py-8">
       <header className="mb-6 flex items-center gap-3">
         <button
-          onClick={() => navigate(-1)}
+          onClick={() => navigate('/')}
           className="text-stone-500 hover:text-stone-800"
-          title="Back"
+          title="Back to library"
+          aria-label="Back to library"
         >
           ←
         </button>
