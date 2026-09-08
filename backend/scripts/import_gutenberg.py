@@ -69,6 +69,9 @@ EPUB_PATHS = (
     "cache/epub/{id}/pg{id}.epub",
 )
 
+# A run where every model call fails should stop, not quietly reject the lot.
+MAX_CONSECUTIVE_FAILURES = 5
+
 # PG's own curated shelves. Membership is a strong enough signal of standing
 # that these skip the model entirely.
 CURATED = (
@@ -202,10 +205,19 @@ async def assess_all(
     if not todo:
         return
     print(f"Assessing {len(todo)} book(s) with {provider.model_id}…")
+    run = 0
     for i, c in enumerate(todo, 1):
         v = await verdict_for(c, verdicts, provider)
         mark = "keep" if v["keep"] else "skip"
-        print(f"  [{i}/{len(todo)}] {mark}  {c.title[:56]:58} {v['reason'][:40]}")
+        print(f"  [{i}/{len(todo)}] {mark}  {c.title[:56]:58} {v['reason'][:52]}")
+        run = run + 1 if v.get("error") else 0
+        if run >= MAX_CONSECUTIVE_FAILURES:
+            save_verdicts(path, verdicts)
+            raise RuntimeError(
+                f"{run} assessments failed in a row — stopping.\n"
+                f"  Last error: {v['reason']}\n"
+                "Nothing was rejected on merit; fix the model and re-run."
+            )
         if i % 20 == 0:
             save_verdicts(path, verdicts)  # checkpoint a long run
     save_verdicts(path, verdicts)
@@ -219,9 +231,13 @@ async def _ask(provider: OllamaProvider, c: Candidate) -> dict:
             "keep": bool(data.get("keep")),
             "reason": str(data.get("reason", ""))[:120] or "no reason given",
         }
+    except httpx.HTTPStatusError as e:
+        # Carry the server's own words. "HTTPStatusError" alone says nothing,
+        # and this is the message that tells you what to fix.
+        detail = " ".join(e.response.text.split())[:160]
+        return {"keep": False, "error": True, "reason": f"HTTP {e.response.status_code}: {detail}"}
     except (json.JSONDecodeError, TypeError, ValueError, httpx.HTTPError) as e:
-        # Never silently drop a book because the model misbehaved.
-        return {"keep": False, "reason": f"assessment failed: {type(e).__name__}", "error": True}
+        return {"keep": False, "error": True, "reason": f"assessment failed: {type(e).__name__}"}
 
 
 # --- download + ingest -----------------------------------------------------
@@ -312,6 +328,7 @@ async def main_async(args) -> None:
                 1,
                 settings.ollama_timeout,
             )
+            await provider.ensure_ready()
 
         # --dry-run and --assess-only want the whole picture, so judge
         # everything. A normal run judges lazily as it goes, so `--limit 20`
@@ -335,13 +352,25 @@ async def main_async(args) -> None:
             print("--keep-all with --dry-run: every candidate would be imported.")
             return
 
-        imported = skipped = rejected = 0
+        imported = skipped = rejected = failures = 0
         headers = {"User-Agent": USER_AGENT}
         with httpx.Client(timeout=120, follow_redirects=True, headers=headers) as client:
             for c in candidates:
                 if args.limit and imported >= args.limit:
                     break
                 v = await verdict_for(c, verdicts, provider)
+                if v.get("error"):
+                    failures += 1
+                    print(f"  !  {c.pg_id:>6}  {c.title[:44]:46} {v['reason'][:60]}")
+                    if failures >= MAX_CONSECUTIVE_FAILURES:
+                        save_verdicts(verdict_path, verdicts)
+                        raise RuntimeError(
+                            f"{failures} assessments failed in a row — stopping.\n"
+                            f"  Last error: {v['reason']}\n"
+                            "Nothing was rejected on merit; fix the model and re-run."
+                        )
+                    continue
+                failures = 0
                 if not v["keep"]:
                     rejected += 1
                     if rejected % 25 == 0:
@@ -414,6 +443,8 @@ def main() -> None:
         print("warning: Gutenberg asks for >=2s between requests; --delay below that risks a block")
     try:
         asyncio.run(main_async(args))
+    except RuntimeError as e:
+        sys.exit(f"\n{e}")
     except KeyboardInterrupt:
         sys.exit("\nInterrupted — re-run to carry on where this left off.")
 
