@@ -9,10 +9,13 @@
 # Useful env vars:
 #   HOST                     interface to bind (default 127.0.0.1 — loopback
 #                            only, so the app is reachable through an SSH
-#                            tunnel but not from the network. Set 0.0.0.0 to
-#                            expose it, and read the auth warning below first.)
+#                            tunnel but not from the network)
+#   PUBLIC=1                 also open a Cloudflare quick tunnel, putting the
+#                            app on the open internet. Off by default: binding
+#                            to loopback would be pointless if a tunnel then
+#                            published that same port to the world.
 #   PORT                     port to serve on (default 8000)
-#   MIRABOOK_OLLAMA_MODEL    model to use (default gemma4:31b)
+#   MIRABOOK_OLLAMA_MODEL    model to use (default gemma2:27b)
 #   MIRABOOK_OLLAMA_HOST     Ollama URL (default http://localhost:11434)
 #   MIRABOOK_BASIC_AUTH      "user:pass" — STRONGLY recommended for a public URL
 #   SKIP_BUILD=1             reuse an existing frontend/dist
@@ -22,7 +25,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PORT="${PORT:-8000}"
 HOST="${HOST:-127.0.0.1}"
-export MIRABOOK_OLLAMA_MODEL="${MIRABOOK_OLLAMA_MODEL:-gemma4:31b}"
+export MIRABOOK_OLLAMA_MODEL="${MIRABOOK_OLLAMA_MODEL:-gemma2:27b}"
 export MIRABOOK_OLLAMA_HOST="${MIRABOOK_OLLAMA_HOST:-http://localhost:11434}"
 export MIRABOOK_STATIC_DIR="$ROOT/frontend/dist"
 
@@ -41,9 +44,9 @@ else
   fi
 fi
 
-if [ -z "${MIRABOOK_BASIC_AUTH:-}" ]; then
-  warn "WARNING: MIRABOOK_BASIC_AUTH is not set — the public URL will have NO authentication."
-  warn "         Anyone with the link can read, upload PDFs, and use your GPU. Set e.g.:"
+if [ -n "${PUBLIC:-}" ] && [ -z "${MIRABOOK_BASIC_AUTH:-}" ]; then
+  warn "WARNING: PUBLIC=1 with no MIRABOOK_BASIC_AUTH — the public URL will have NO authentication."
+  warn "         Anyone with the link can read, upload books, and use your GPU. Set e.g.:"
   warn "         export MIRABOOK_BASIC_AUTH=reader:your-strong-password"
 fi
 
@@ -80,17 +83,26 @@ if [ -z "${READY:-}" ]; then
 fi
 bold "Backend up at http://localhost:$PORT"
 
-# --- expose on the internet ---
-if command -v cloudflared >/dev/null; then
+# --- reach it from elsewhere ---
+#
+# A tunnel reaches the app over loopback from this same machine, so opening one
+# undoes the loopback bind entirely. That has to be asked for, not assumed.
+if [ -z "${PUBLIC:-}" ]; then
+  bold "Bound to $HOST:$PORT — not reachable from the internet."
+  echo "To read it from another machine, forward the port over SSH:"
+  echo "  ssh -N -L $PORT:localhost:$PORT $(whoami)@$(hostname)"
+  echo "then open http://localhost:$PORT there."
+  echo
+  echo "To publish it instead, re-run with PUBLIC=1 (set MIRABOOK_BASIC_AUTH first)."
+  wait "$BACK"
+elif command -v cloudflared >/dev/null; then
   bold "Opening a public Cloudflare tunnel (Ctrl-C to stop everything)…"
   cloudflared tunnel --url "http://localhost:$PORT"
 else
-  warn "cloudflared not installed — no public URL created."
+  warn "PUBLIC=1 but cloudflared is not installed — no public URL created."
   echo "Install it for an instant https link:"
   echo "  macOS:  brew install cloudflared"
   echo "  Linux:  https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/"
   echo "Then re-run, or expose port $PORT with your own tunnel / reverse proxy."
-  echo "Bound to $HOST:$PORT. On loopback, reach it with an SSH tunnel:"
-  echo "  ssh -N -L $PORT:localhost:$PORT <this-machine>"
   wait "$BACK"
 fi
