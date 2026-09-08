@@ -14,8 +14,17 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+# Real optional features of the shipped package: install one to use that
+# translation provider.
 anthropic = ["anthropic>=1.0"]
 openai = ["openai>=3.0"]
+
+# Tooling, not a feature of the package. As an optional-dependency it was an
+# extra nobody installed unless they knew to, so a fresh checkout — CI's, or a
+# new contributor's — had no pytest and no ruff. A dependency group is
+# installed by `uv sync` and `uv run` without being asked, which is what a
+# development requirement should do.
+[dependency-groups]
 dev = [
     "pytest>=8.2",
     "pytest-asyncio>=0.23",

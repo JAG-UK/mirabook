@@ -58,6 +58,11 @@ jobs:
 
       - name: Install pnpm
         uses: pnpm/action-setup@v4
+        with:
+          # The version comes from "packageManager" in package.json, which
+          # lives in frontend/ — there is no package.json at the repo root for
+          # the action to find on its own.
+          package_json_file: frontend/package.json
 
       - name: Install Node
         uses: actions/setup-node@v4
@@ -88,6 +93,11 @@ jobs:
 
       - name: Install pnpm
         uses: pnpm/action-setup@v4
+        with:
+          # The version comes from "packageManager" in package.json, which
+          # lives in frontend/ — there is no package.json at the repo root for
+          # the action to find on its own.
+          package_json_file: frontend/package.json
 
       - name: Install Node
         uses: actions/setup-node@v4
@@ -115,6 +125,11 @@ jobs:
 
       - name: Install pnpm
         uses: pnpm/action-setup@v4
+        with:
+          # The version comes from "packageManager" in package.json, which
+          # lives in frontend/ — there is no package.json at the repo root for
+          # the action to find on its own.
+          package_json_file: frontend/package.json
 
       - name: Install Node
         uses: actions/setup-node@v4
