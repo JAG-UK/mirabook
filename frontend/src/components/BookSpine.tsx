@@ -28,6 +28,9 @@ interface Props {
   onDownload: (book: BookMeta) => void
   onRemoveDownload: (book: BookMeta) => void
   onRemove: (book: BookMeta) => void
+  onEdit: (book: BookMeta) => void
+  favourite: boolean
+  onToggleFavourite: (book: BookMeta) => void
 }
 
 export default function BookSpine({
@@ -41,6 +44,9 @@ export default function BookSpine({
   onDownload,
   onRemoveDownload,
   onRemove,
+  onEdit,
+  favourite,
+  onToggleFavourite,
 }: Props) {
   const bookmarked = !!savedPage && savedPage > 1
   const byline = book.author ? ` — ${book.author}` : ''
@@ -65,6 +71,33 @@ export default function BookSpine({
         {bookmarked && <span className="bookmark-ribbon" />}
         <span className="spine-title">{book.title}</span>
       </button>
+
+      <button
+        className={`spine-fav${favourite ? ' on' : ''}`}
+        onClick={(e) => {
+          e.stopPropagation()
+          onToggleFavourite(book)
+        }}
+        title={favourite ? 'Remove from favourites' : 'Add to favourites'}
+        aria-label={`${favourite ? 'Unfavourite' : 'Favourite'} ${book.title}`}
+        aria-pressed={favourite}
+      >
+        {favourite ? '★' : '☆'}
+      </button>
+
+      {reachable && (
+        <button
+          className="spine-edit"
+          onClick={(e) => {
+            e.stopPropagation()
+            onEdit(book)
+          }}
+          title="Edit title, author and shelf"
+          aria-label={`Edit ${book.title}`}
+        >
+          ✎
+        </button>
+      )}
 
       {reachable && (
         <button

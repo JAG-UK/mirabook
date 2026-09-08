@@ -220,6 +220,111 @@ def test_unknown_book_is_404_on_every_route(client: TestClient):
     assert client.post("/api/books/nope/translate", json={"pages": [1]}).status_code == 404
 
 
+# --- editing labels ---
+
+
+def seed_labelled(client: TestClient) -> None:
+    client.app.state.store.save_book(
+        BookMeta(
+            id="bk1", title="don-quijote-es", source_lang="Spanish", target_lang="English",
+            page_count=32, author="Cervantes", shelf="History", source="gutenberg:2000",
+        ),
+        [],
+    )
+
+
+def test_a_book_can_be_retitled(client: TestClient):
+    seed_labelled(client)
+    body = client.patch("/api/books/bk1", json={"title": "  Don Quijote  "}).json()
+    assert body["title"] == "Don Quijote"
+    # ...and nothing else moved.
+    assert body["author"] == "Cervantes"
+    assert body["shelf"] == "History"
+    assert body["source"] == "gutenberg:2000"
+
+
+def test_omitted_fields_are_left_alone(client: TestClient):
+    seed_labelled(client)
+    client.patch("/api/books/bk1", json={"author": "Miguel de Cervantes"})
+    book = client.get("/api/books/bk1").json()
+    assert book["author"] == "Miguel de Cervantes"
+    assert book["title"] == "don-quijote-es"
+    assert book["shelf"] == "History"
+
+
+def test_a_misfiled_book_can_be_moved_to_another_shelf(client: TestClient):
+    seed_labelled(client)
+    assert client.patch("/api/books/bk1", json={"shelf": "Novels"}).json()["shelf"] == "Novels"
+    assert client.get("/api/shelves").json() == [{"name": "Novels", "count": 1}]
+
+
+def test_shelf_names_are_matched_loosely_but_stored_canonically(client: TestClient):
+    seed_labelled(client)
+    assert client.patch("/api/books/bk1", json={"shelf": "novels"}).json()["shelf"] == "Novels"
+
+
+@pytest.mark.parametrize("cleared", [None, "", "   "])
+def test_an_author_can_be_cleared(client: TestClient, cleared):
+    seed_labelled(client)
+    assert client.patch("/api/books/bk1", json={"author": cleared}).json()["author"] is None
+
+
+@pytest.mark.parametrize("cleared", [None, "", "Unshelved"])
+def test_a_book_can_be_taken_off_its_shelf(client: TestClient, cleared):
+    seed_labelled(client)
+    assert client.patch("/api/books/bk1", json={"shelf": cleared}).json()["shelf"] is None
+    assert client.get("/api/shelves").json() == [{"name": "Unshelved", "count": 1}]
+
+
+@pytest.mark.parametrize("bad", [None, "", "   "])
+def test_a_book_cannot_be_left_without_a_title(client: TestClient, bad):
+    seed_labelled(client)
+    assert client.patch("/api/books/bk1", json={"title": bad}).status_code == 400
+    assert client.get("/api/books/bk1").json()["title"] == "don-quijote-es"
+
+
+def test_an_invented_shelf_is_refused(client: TestClient):
+    """Otherwise the library grows a category holding exactly one book."""
+    seed_labelled(client)
+    r = client.patch("/api/books/bk1", json={"shelf": "Bangers"})
+    assert r.status_code == 400
+    assert "Bangers" in r.json()["detail"]
+    assert client.get("/api/books/bk1").json()["shelf"] == "History"
+
+
+def test_patching_an_unknown_book_is_404(client: TestClient):
+    assert client.patch("/api/books/nope", json={"title": "x"}).status_code == 404
+
+
+def test_an_empty_patch_changes_nothing(client: TestClient):
+    seed_labelled(client)
+    assert client.patch("/api/books/bk1", json={}).json()["title"] == "don-quijote-es"
+
+
+def test_editing_labels_leaves_the_pages_intact(client: TestClient):
+    """Renaming a book must not disturb its blocks or cached translations."""
+    seed_book(client)
+    client.get("/api/books/bk1/pages/1")
+    client.patch("/api/books/bk1", json={"title": "Nuevo título", "shelf": "Poetry"})
+    page = client.get("/api/books/bk1/pages/1").json()
+    assert [b["id"] for b in page["blocks"]] == ["p1-b0", "p1-b1", "p1-b2", "p1-b3"]
+    assert {t["id"]: t["text"] for t in page["translations"]}["p1-b1"] == "EN UN LUGAR"
+
+
+# --- the editor's shelf choices ---
+
+
+def test_all_shelves_are_offered_for_editing_even_when_empty(client: TestClient):
+    seed_labelled(client)
+    chips = client.get("/api/shelves").json()
+    choices = client.get("/api/shelves?all=true").json()
+    assert [c["name"] for c in chips] == ["History"]
+    names = [c["name"] for c in choices]
+    assert "Novels" in names and "Poetry" in names and names[-1] == "Unshelved"
+    assert next(c for c in choices if c["name"] == "History")["count"] == 1
+    assert next(c for c in choices if c["name"] == "Poetry")["count"] == 0
+
+
 # --- deletion ---
 
 

@@ -2,8 +2,10 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { BookMeta, Shelf, deleteBook, listBooks, listShelves, uploadBook } from '../api/client'
 import BookSpine from '../components/BookSpine'
+import EditBookDialog from '../components/EditBookDialog'
 import ProfileMenu from '../components/ProfileMenu'
 import Spinner from '../components/Spinner'
+import { forgetFavourite, listFavourites, toggleFavourite } from '../lib/favourites'
 import { useProfile } from '../lib/profiles'
 import { listProgress } from '../lib/progress'
 import {
@@ -53,6 +55,10 @@ export default function Library() {
   const [query, setQuery] = useState('')
   const [activeShelf, setActiveShelf] = useState<string | null>(null)
   const [shown, setShown] = useState(PAGE)
+  const [editing, setEditing] = useState<BookMeta | null>(null)
+  const [allShelves, setAllShelves] = useState<Shelf[]>([])
+  const [favourites, setFavourites] = useState<Set<string>>(new Set())
+  const [favOnly, setFavOnly] = useState(false)
   const fileInput = useRef<HTMLInputElement>(null)
   const navigate = useNavigate()
   const { active } = useProfile()
@@ -61,9 +67,10 @@ export default function Library() {
   const load = useCallback(async () => {
     setDownloads(await getDownloadIndex())
     try {
-      const [b, s] = await Promise.all([listBooks(), listShelves()])
+      const [b, s, every] = await Promise.all([listBooks(), listShelves(), listShelves(true)])
       setBooks(b)
       setShelves(s)
+      setAllShelves(every)
       setReachable(true)
       cacheLibrary(b)
       cacheShelves(s)
@@ -80,8 +87,10 @@ export default function Library() {
     load()
   }, [load, online])
 
-  // A new search or shelf starts the list from the top again.
-  useEffect(() => setShown(PAGE), [query, activeShelf])
+  useEffect(() => setFavourites(listFavourites(active.id)), [active.id])
+
+  // A new search, shelf or filter starts the list from the top again.
+  useEffect(() => setShown(PAGE), [query, activeShelf, favOnly])
 
   async function onFile(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
@@ -131,9 +140,23 @@ export default function Library() {
     try {
       await deleteBook(meta.id)
       await deleteOfflineBook(meta.id)
+      forgetFavourite(active.id, meta.id) // don't leave a phantom favourite
+      setFavourites(listFavourites(active.id))
       await load()
     } catch (err) {
       setError(`Could not remove book: ${err}`)
+    }
+  }
+
+  function applyEdit(updated: BookMeta) {
+    const shelfMoved = books.find((b) => b.id === updated.id)?.shelf !== updated.shelf
+    setBooks((bs) => bs.map((b) => (b.id === updated.id ? updated : b)))
+    setEditing(null)
+    // Shelf counts live on the server; only re-fetch when one actually moved.
+    if (shelfMoved) {
+      listShelves()
+        .then(setShelves)
+        .catch(() => {})
     }
   }
 
@@ -147,7 +170,10 @@ export default function Library() {
     .slice(0, 4)
     .map((p) => ({ ...p, book: byId.get(p.bookId)! }))
 
-  const found = useMemo(() => books.filter((b) => matches(b, query)), [books, query])
+  const found = useMemo(
+    () => books.filter((b) => matches(b, query) && (!favOnly || favourites.has(b.id))),
+    [books, query, favOnly, favourites],
+  )
   const inShelf = useMemo(
     () => (activeShelf ? found.filter((b) => (b.shelf ?? UNSHELVED) === activeShelf) : found),
     [found, activeShelf],
@@ -167,9 +193,10 @@ export default function Library() {
       .map((name) => ({ name, books: bucket.get(name)! }))
   }, [found, shelves])
 
-  // Browse by theme only when there is something to browse and nothing is
-  // narrowing the view already.
+  // Browse by theme only when there is something to browse and no single
+  // shelf or search is narrowing the view. Favourites still group by shelf.
   const browsing = !activeShelf && !query && grouped.length > 1
+  const narrowed = !!activeShelf || !!query || favOnly
 
   const renderSpine = (b: BookMeta) => (
     <BookSpine
@@ -184,6 +211,9 @@ export default function Library() {
       onDownload={startDownload}
       onRemoveDownload={removeDownload}
       onRemove={removeBook}
+      onEdit={setEditing}
+      favourite={favourites.has(b.id)}
+      onToggleFavourite={(x) => setFavourites(toggleFavourite(active.id, x.id))}
     />
   )
 
@@ -251,21 +281,40 @@ export default function Library() {
         />
       </header>
 
-      {/* Search + themed shelves. Only worth the space once the shelf is big. */}
-      {books.length > PER_SHELF && (
+      {/* Search + themed shelves. Only worth the space once the shelf is big —
+          or once something has been starred, so a small library can still be
+          filtered down to its favourites. */}
+      {(books.length > PER_SHELF || favourites.size > 0) && (
         <div className="mb-6 space-y-3">
-          <div className="relative">
-            <input
-              type="search"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder="Search by title or author…"
-              aria-label="Search the library"
-              className="w-full rounded-lg border border-stone-300 bg-white px-3 py-2 pl-9 text-sm shadow-sm focus:border-stone-500 focus:outline-none"
-            />
-            <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-stone-400">
-              ⌕
-            </span>
+          <div className="flex gap-2">
+            <div className="relative flex-1">
+              <input
+                type="search"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="Search by title or author…"
+                aria-label="Search the library"
+                className="w-full rounded-lg border border-stone-300 bg-white px-3 py-2 pl-9 text-sm shadow-sm focus:border-stone-500 focus:outline-none"
+              />
+              <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-stone-400">
+                ⌕
+              </span>
+            </div>
+            {/* Independent of the shelf chips: favourites cut across shelves. */}
+            <button
+              onClick={() => setFavOnly((v) => !v)}
+              aria-pressed={favOnly}
+              title={favOnly ? 'Show all books' : 'Show only favourites'}
+              className={`shrink-0 rounded-lg border px-3 py-2 text-sm font-medium transition ${
+                favOnly
+                  ? 'border-amber-400 bg-amber-100 text-amber-900'
+                  : 'border-stone-300 bg-white text-stone-500 hover:bg-stone-100'
+              }`}
+            >
+              <span className={favOnly ? 'text-amber-500' : ''}>{favOnly ? '★' : '☆'}</span>
+              <span className="ml-1.5 hidden sm:inline">Favourites</span>
+              {favourites.size > 0 && <span className="ml-1 opacity-60">{favourites.size}</span>}
+            </button>
           </div>
           {shelves.length > 1 && (
             <div className="flex flex-wrap gap-1.5">
@@ -337,6 +386,15 @@ export default function Library() {
         </section>
       )}
 
+      {editing && (
+        <EditBookDialog
+          book={editing}
+          shelves={allShelves}
+          onSaved={applyEdit}
+          onClose={() => setEditing(null)}
+        />
+      )}
+
       {loading ? (
         <Spinner label="Loading library…" />
       ) : browsing ? (
@@ -364,10 +422,10 @@ export default function Library() {
         </div>
       ) : (
         <>
-          {(activeShelf || query) && (
+          {narrowed && (
             <div className="mb-2 flex items-baseline justify-between">
               <h2 className="font-serif text-lg font-semibold">
-                {activeShelf ?? 'Search results'}
+                {activeShelf ?? (favOnly ? 'Favourites' : 'Search results')}
                 <span className="ml-2 text-sm font-normal text-stone-400">
                   {inShelf.length} book{inShelf.length === 1 ? '' : 's'}
                 </span>
@@ -376,6 +434,7 @@ export default function Library() {
                 onClick={() => {
                   setActiveShelf(null)
                   setQuery('')
+                  setFavOnly(false)
                 }}
                 className="text-xs font-medium text-stone-500 hover:text-stone-800"
               >
@@ -388,14 +447,16 @@ export default function Library() {
               <div key={si}>
                 <div className="shelf">
                   {row.map(renderSpine)}
-                  {si === rows.length - 1 && reachable && !activeShelf && !query && addSpine}
+                  {si === rows.length - 1 && reachable && !narrowed && addSpine}
                   {inShelf.length === 0 && (
                     <span className="ml-3 self-center text-sm italic text-amber-50/70">
-                      {query || activeShelf
-                        ? 'Nothing here matches.'
-                        : reachable
-                          ? 'Your shelf is empty — add a Spanish PDF or EPUB.'
-                          : 'No downloaded books to read offline.'}
+                      {favOnly && !query && !activeShelf
+                        ? 'No favourites yet — star a book with the ☆ on its spine.'
+                        : narrowed
+                          ? 'Nothing here matches.'
+                          : reachable
+                            ? 'Your shelf is empty — add a Spanish PDF or EPUB.'
+                            : 'No downloaded books to read offline.'}
                     </span>
                   )}
                 </div>

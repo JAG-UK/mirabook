@@ -77,10 +77,35 @@ async function postJSON<T>(path: string, body: unknown): Promise<T> {
   return r.json() as Promise<T>
 }
 
+async function patchJSON<T>(path: string, body: unknown): Promise<T> {
+  const r = await fetch(`${BASE}${path}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+  if (!r.ok) {
+    // The backend explains a rejected edit ("'Bangers' is not one of the
+    // shelves"); that is worth showing rather than a bare status code.
+    const detail = await r.json().catch(() => null)
+    throw new Error(detail?.detail ?? `${r.status} ${r.statusText}`)
+  }
+  return r.json() as Promise<T>
+}
+
 export const mediaUrl = (src: string) => `${BASE}${src}`
 
 export const listBooks = () => getJSON<BookMeta[]>('/api/books')
-export const listShelves = () => getJSON<Shelf[]>('/api/shelves')
+export const listShelves = (all = false) =>
+  getJSON<Shelf[]>(`/api/shelves${all ? '?all=true' : ''}`)
+
+/** Correct a book's labels. Omitted fields are left as they are. */
+export interface BookLabels {
+  title?: string
+  author?: string | null
+  shelf?: string | null
+}
+export const updateBook = (id: string, labels: BookLabels) =>
+  patchJSON<BookMeta>(`/api/books/${id}`, labels)
 export const getBook = (id: string) => getJSON<BookMeta>(`/api/books/${id}`)
 export const getPage = (id: string, n: number) =>
   getJSON<PageData>(`/api/books/${id}/pages/${n}`)

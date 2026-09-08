@@ -7,7 +7,7 @@ from pydantic import BaseModel
 
 from app.ingest.pdf import ingest_document
 from app.ingest.toc import derive_toc
-from app.shelves import SHELVES, UNSHELVED
+from app.shelves import SHELVES, UNSHELVED, normalize_shelf
 from app.models import (
     Alternative,
     BlockType,
@@ -53,16 +53,20 @@ class Shelf(BaseModel):
 
 
 @router.get("/shelves", response_model=list[Shelf])
-async def list_shelves(req: Request):
-    """The themed shelves that currently hold books, in display order.
+async def list_shelves(req: Request, all: bool = False):
+    """The themed shelves, in display order.
+
+    By default only shelves holding something, which is what the library's
+    filter chips want. `?all=true` returns every shelf in the taxonomy,
+    including empty ones — what the editor needs to offer as choices.
 
     Serving the canonical order from the backend keeps the library UI from
     drifting out of step with `app.shelves`.
     """
     counts = _store(req).shelf_counts()
-    shelves = [Shelf(name=n, count=counts[n]) for n in SHELVES if counts.get(n)]
-    if counts.get(""):
-        shelves.append(Shelf(name=UNSHELVED, count=counts[""]))
+    shelves = [Shelf(name=n, count=counts.get(n, 0)) for n in SHELVES if all or counts.get(n)]
+    if all or counts.get(""):
+        shelves.append(Shelf(name=UNSHELVED, count=counts.get("", 0)))
     return shelves
 
 
@@ -107,6 +111,49 @@ async def get_book(req: Request, book_id: str):
     if not meta.toc:
         meta.toc = derive_toc(store.get_headings(book_id), store.body_size(book_id))
     return meta
+
+
+class BookUpdate(BaseModel):
+    """A partial edit. An omitted field is left alone; an explicit null clears
+    it — so "no author" and "don't touch the author" stay distinguishable."""
+
+    title: str | None = None
+    author: str | None = None
+    shelf: str | None = None
+
+
+@router.patch("/books/{book_id}", response_model=BookMeta)
+async def update_book(req: Request, book_id: str, body: BookUpdate):
+    """Correct a book's title, author or shelf.
+
+    Ingest guesses all three — from a filename, a catalogue row, or a model —
+    and is sometimes wrong, so they need to be fixable without a re-import.
+    """
+    store = _store(req)
+    if not store.get_book(book_id):
+        raise HTTPException(404, "Book not found")
+
+    fields = body.model_dump(exclude_unset=True)
+    if "title" in fields:
+        title = (fields["title"] or "").strip()
+        if not title:
+            raise HTTPException(400, "A book needs a title")
+        fields["title"] = title
+    if "author" in fields:
+        fields["author"] = (fields["author"] or "").strip() or None
+    if "shelf" in fields:
+        raw = (fields["shelf"] or "").strip()
+        # An unknown shelf would show in the library as a category of one.
+        if raw and raw != UNSHELVED:
+            shelf = normalize_shelf(raw)
+            if shelf is None:
+                raise HTTPException(400, f"{raw!r} is not one of the shelves")
+            fields["shelf"] = shelf
+        else:
+            fields["shelf"] = None
+
+    store.update_book(book_id, fields)
+    return store.get_book(book_id)
 
 
 @router.delete("/books/{book_id}", status_code=204)
