@@ -1,4 +1,7 @@
 import { useNavigate } from 'react-router-dom'
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
+import { sentenceAround } from '../lib/context'
 import { useProfile } from '../lib/profiles'
 import { dueCount } from '../lib/srs'
 import { useReaderData } from '../lib/useReaderData'
@@ -65,10 +68,14 @@ export default function SavedWords() {
                 </button>
               </div>
               {w.context && (
-                <p className="mt-1 text-sm italic text-stone-500">“{w.context}”</p>
+                <p className="mt-1 text-sm italic text-stone-500">
+                  “{sentenceAround(w.context, w.text)}”
+                </p>
               )}
               {w.gloss && <p className="mt-2 text-stone-800">{w.gloss}</p>}
-              <p className="mt-2 text-sm leading-relaxed text-stone-700">{w.explanation}</p>
+              <div className="md mt-2 text-sm leading-relaxed text-stone-700">
+                <ReactMarkdown remarkPlugins={[remarkGfm]}>{w.explanation}</ReactMarkdown>
+              </div>
               {w.book_title && (
                 <p className="mt-2 text-xs text-stone-400">from {w.book_title}</p>
               )}

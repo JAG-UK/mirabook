@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { SavedWord } from '../api/client'
+import { sentenceAround } from '../lib/context'
 import { useProfile } from '../lib/profiles'
 import { putWord } from '../lib/readerStore'
 import { Grade, buildSession, describeInterval, gradeWord } from '../lib/srs'
@@ -104,7 +105,7 @@ export default function Review() {
   }, [card, revealed, answer])
 
   const [before, phrase, after] = useMemo(
-    () => (card ? splitContext(card.context, card.text) : ['', '', '']),
+    () => (card ? splitContext(sentenceAround(card.context, card.text), card.text) : ['', '', '']),
     [card],
   )
 

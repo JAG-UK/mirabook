@@ -19,6 +19,7 @@ import InfoPopover from '../components/InfoPopover'
 import ProfileMenu from '../components/ProfileMenu'
 import SelectionMenu, { SelectionState } from '../components/SelectionMenu'
 import Spinner from '../components/Spinner'
+import { sentenceAround } from '../lib/context'
 import { getProgress, saveProgress } from '../lib/progress'
 import { useProfile } from '../lib/profiles'
 import { OfflineBook, getOfflineBook } from '../lib/offline'
@@ -228,7 +229,9 @@ export default function Reader() {
       return
     }
     const rect = s!.getRangeAt(0).getBoundingClientRect()
-    setSel({ x: rect.left + rect.width / 2, y: rect.top, text, context: block.text })
+    // The block can be a whole title page; the model wants the sentence.
+    const context = sentenceAround(block.text, text)
+    setSel({ x: rect.left + rect.width / 2, y: rect.top, text, context })
   }
 
   async function runExplain(kind: 'grammar' | 'idiom') {
