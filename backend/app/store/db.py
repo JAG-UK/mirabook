@@ -136,10 +136,25 @@ class Store:
         ).fetchall()
         return {r["shelf"]: r["n"] for r in rows}
 
-    def set_shelf(self, book_id: str, shelf: str | None) -> None:
+    # The only book columns a reader may edit. Whitelisted rather than
+    # interpolated, since these names reach an UPDATE statement.
+    EDITABLE = ("title", "author", "shelf")
+
+    def update_book(self, book_id: str, fields: dict[str, str | None]) -> None:
+        """Set some subset of a book's labels, leaving the rest alone."""
+        changes = {k: v for k, v in fields.items() if k in self.EDITABLE}
+        if not changes:
+            return
+        assignments = ", ".join(f"{k} = ?" for k in changes)
         with self._lock:
-            self._conn.execute("UPDATE books SET shelf = ? WHERE id = ?", (shelf, book_id))
+            self._conn.execute(
+                f"UPDATE books SET {assignments} WHERE id = ?",
+                (*changes.values(), book_id),
+            )
             self._conn.commit()
+
+    def set_shelf(self, book_id: str, shelf: str | None) -> None:
+        self.update_book(book_id, {"shelf": shelf})
 
     def list_books(self) -> list[BookMeta]:
         rows = self._conn.execute(

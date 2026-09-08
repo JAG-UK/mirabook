@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { BookMeta, Shelf, deleteBook, listBooks, listShelves, uploadBook } from '../api/client'
 import BookSpine from '../components/BookSpine'
+import EditBookDialog from '../components/EditBookDialog'
 import ProfileMenu from '../components/ProfileMenu'
 import Spinner from '../components/Spinner'
 import { useProfile } from '../lib/profiles'
@@ -53,6 +54,8 @@ export default function Library() {
   const [query, setQuery] = useState('')
   const [activeShelf, setActiveShelf] = useState<string | null>(null)
   const [shown, setShown] = useState(PAGE)
+  const [editing, setEditing] = useState<BookMeta | null>(null)
+  const [allShelves, setAllShelves] = useState<Shelf[]>([])
   const fileInput = useRef<HTMLInputElement>(null)
   const navigate = useNavigate()
   const { active } = useProfile()
@@ -61,9 +64,10 @@ export default function Library() {
   const load = useCallback(async () => {
     setDownloads(await getDownloadIndex())
     try {
-      const [b, s] = await Promise.all([listBooks(), listShelves()])
+      const [b, s, every] = await Promise.all([listBooks(), listShelves(), listShelves(true)])
       setBooks(b)
       setShelves(s)
+      setAllShelves(every)
       setReachable(true)
       cacheLibrary(b)
       cacheShelves(s)
@@ -137,6 +141,18 @@ export default function Library() {
     }
   }
 
+  function applyEdit(updated: BookMeta) {
+    const shelfMoved = books.find((b) => b.id === updated.id)?.shelf !== updated.shelf
+    setBooks((bs) => bs.map((b) => (b.id === updated.id ? updated : b)))
+    setEditing(null)
+    // Shelf counts live on the server; only re-fetch when one actually moved.
+    if (shelfMoved) {
+      listShelves()
+        .then(setShelves)
+        .catch(() => {})
+    }
+  }
+
   const progressMap = new Map(listProgress(active.id).map((p) => [p.bookId, p]))
   const isAvailable = (id: string) => reachable || id in downloads
 
@@ -184,6 +200,7 @@ export default function Library() {
       onDownload={startDownload}
       onRemoveDownload={removeDownload}
       onRemove={removeBook}
+      onEdit={setEditing}
     />
   )
 
@@ -335,6 +352,15 @@ export default function Library() {
             })}
           </div>
         </section>
+      )}
+
+      {editing && (
+        <EditBookDialog
+          book={editing}
+          shelves={allShelves}
+          onSaved={applyEdit}
+          onClose={() => setEditing(null)}
+        />
       )}
 
       {loading ? (

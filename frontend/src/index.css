@@ -308,6 +308,33 @@ body {
   background: #c0392b;
 }
 
+/* edit-labels control, sitting just left of the remove control */
+.spine-edit {
+  position: absolute;
+  top: -8px;
+  right: 15px;
+  z-index: 4;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  font-size: 10px;
+  line-height: 1;
+  color: #fff;
+  background: rgba(40, 30, 20, 0.78);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+  opacity: 0;
+  transition: opacity 0.14s ease, background 0.14s ease;
+}
+.spine-wrap:hover .spine-edit {
+  opacity: 1;
+}
+.spine-edit:hover {
+  background: #2f4f3e;
+}
+
 /* download / delete control at the foot of a spine */
 .spine-foot {
   position: absolute;
