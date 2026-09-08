@@ -5,12 +5,13 @@ from pathlib import Path
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, Response
+from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 from app.api.routes import router
 from app.config import get_settings
 from app.store.db import Store
+from app.translate.ollama import ModelUnavailable
 
 
 @asynccontextmanager
@@ -52,6 +53,13 @@ def create_app() -> FastAPI:
                 status_code=401,
                 headers={"WWW-Authenticate": 'Basic realm="Mirabook"'},
             )
+
+    @app.exception_handler(ModelUnavailable)
+    async def model_unavailable(_request: Request, exc: ModelUnavailable):
+        """A model that was never pulled is a configuration problem with a
+        one-line fix, not a server fault. Say which model and how to get it,
+        rather than logging a traceback the reader never sees."""
+        return JSONResponse(status_code=503, content={"detail": str(exc)})
 
     app.include_router(router, prefix="/api")
 

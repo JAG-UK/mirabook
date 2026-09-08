@@ -1,5 +1,5 @@
 import { ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Link, useParams } from 'react-router-dom'
+import { Link, useParams, useSearchParams } from 'react-router-dom'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import {
@@ -19,6 +19,8 @@ import InfoPopover from '../components/InfoPopover'
 import ProfileMenu from '../components/ProfileMenu'
 import SelectionMenu, { SelectionState } from '../components/SelectionMenu'
 import Spinner from '../components/Spinner'
+import Toggle from '../components/Toggle'
+import { sentenceAround } from '../lib/context'
 import { getProgress, saveProgress } from '../lib/progress'
 import { useProfile } from '../lib/profiles'
 import { OfflineBook, getOfflineBook } from '../lib/offline'
@@ -34,11 +36,18 @@ interface PopoverState {
 
 export default function Reader() {
   const { bookId = '' } = useParams()
+  const [params] = useSearchParams()
   const { active } = useProfile()
   const settings = active.settings
   const [meta, setMeta] = useState<BookMeta | null>(null)
-  // Resume where this profile left off (bookmark).
-  const [page, setPage] = useState(() => getProgress(active.id, bookId))
+
+  // Arriving with ?page= means something sent you here to look at one place —
+  // a saved word, say. That is a peek, not a reading session: it must not
+  // move a bookmark four hundred pages away.
+  const asked = Number(params.get('page')) || null
+  const [mode, setMode] = useState<'reading' | 'peek'>(asked ? 'peek' : 'reading')
+  const peeking = mode === 'peek'
+  const [page, setPage] = useState(() => asked ?? getProgress(active.id, bookId))
   const [dir, setDir] = useState<'next' | 'prev'>('next')
   const [data, setData] = useState<PageData | null>(null)
   const [loading, setLoading] = useState(true)
@@ -89,10 +98,12 @@ export default function Reader() {
     }
   }, [bookId, goOffline])
 
-  // Remember the page (bookmark) for this profile whenever it changes.
+  // Remember the page (bookmark) for this profile whenever it changes —
+  // unless this is a peek, where paging around to check context should leave
+  // the reader's real place alone.
   useEffect(() => {
-    if (meta) saveProgress(active.id, bookId, page)
-  }, [active.id, bookId, page, meta])
+    if (meta && !peeking) saveProgress(active.id, bookId, page)
+  }, [active.id, bookId, page, meta, peeking])
 
   // Replay the page-turn leaf on each turn (flip animation only).
   useEffect(() => {
@@ -162,7 +173,9 @@ export default function Reader() {
         if (cancelled) return
         setData(d)
         setLoading(false)
-        if (page < meta.page_count) ensurePage(page + 1).catch(() => {})
+        // Peeking is a glance, so there is no next page to warm — and warming
+        // one costs the model a translation nobody asked for.
+        if (!peeking && page < meta.page_count) ensurePage(page + 1).catch(() => {})
       })
       .catch((e) => {
         if (cancelled) return
@@ -172,7 +185,7 @@ export default function Reader() {
     return () => {
       cancelled = true
     }
-  }, [meta, page, ensurePage])
+  }, [meta, page, ensurePage, peeking])
 
   const go = useCallback(
     (n: number) => {
@@ -228,7 +241,9 @@ export default function Reader() {
       return
     }
     const rect = s!.getRangeAt(0).getBoundingClientRect()
-    setSel({ x: rect.left + rect.width / 2, y: rect.top, text, context: block.text })
+    // The block can be a whole title page; the model wants the sentence.
+    const context = sentenceAround(block.text, text)
+    setSel({ x: rect.left + rect.width / 2, y: rect.top, text, context })
   }
 
   async function runExplain(kind: 'grammar' | 'idiom') {
@@ -244,8 +259,10 @@ export default function Reader() {
           context,
           kind,
           explanation: ex.text,
+          gloss: ex.gloss, // the answer side of the review card
           bookId,
           bookTitle: meta?.title ?? '',
+          page, // so a review card can offer to show it in place
         })
       setPopover(
         (p) => p && { ...p, loading: false, content: <ExplainBody text={ex.text} onSave={onSave} /> },
@@ -332,17 +349,24 @@ export default function Reader() {
           )}
 
           <div className="ml-auto flex items-center gap-2">
-            <button
-              onClick={() => setBlurEnabled((b) => !b)}
-              className={`rounded px-2.5 py-1 text-sm ${
-                blurEnabled
-                  ? 'bg-stone-800 text-white'
-                  : 'border border-stone-400 text-[color:var(--ink-soft)]'
-              }`}
-              title="Blur the translation to avoid peeking"
-            >
-              {blurEnabled ? 'Blur on' : 'Blur off'}
-            </button>
+            <Toggle
+              label="Peek"
+              tone="amber"
+              checked={peeking}
+              onChange={(next) => {
+                // Turning it off means "I am reading here now", so the
+                // bookmark moves to this page rather than staying behind.
+                if (!next) saveProgress(active.id, bookId, page)
+                setMode(next ? 'peek' : 'reading')
+              }}
+              title="Look around without moving your place in the book"
+            />
+            <Toggle
+              label="Blur"
+              checked={blurEnabled}
+              onChange={setBlurEnabled}
+              title="Hide the translation until you hover or tap it"
+            />
             <div className="flex items-center gap-1 text-sm text-[color:var(--ink-soft)]">
               <button
                 onClick={() => go(page - 1)}

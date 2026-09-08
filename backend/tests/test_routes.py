@@ -1,65 +1,14 @@
 """Tests for the HTTP API, driven through FastAPI's TestClient against a stub
 translation provider so nothing here needs Ollama (or a network)."""
 
-from pathlib import Path
-
 import pytest
 from fastapi.testclient import TestClient
 
 from app.api import routes
 from app.config import get_settings
-from app.models import Alternative, Block, BlockType, BookMeta, Explanation, TocEntry
-from app.translate.base import TranslationProvider
-
-SAMPLE = Path(__file__).resolve().parents[2] / "sample-books" / "don-quijote-es.pdf"
-
-
-class StubProvider(TranslationProvider):
-    """Uppercases the source instead of calling a model, and records what it
-    was asked to translate so tests can assert on cache behaviour."""
-
-    name = "stub"
-
-    def __init__(self, model_id: str = "stub:v1"):
-        self._model_id = model_id
-        self.translated: list[str] = []
-
-    @property
-    def model_id(self) -> str:
-        return self._model_id
-
-    async def _translate_text(self, text: str, src: str, tgt: str) -> str:
-        self.translated.append(text)
-        return text.upper()
-
-    async def explain(self, text, context, kind, src, tgt) -> Explanation:
-        return Explanation(kind=kind, text=f"{kind} for {text!r} in {src}->{tgt}")
-
-    async def alternatives(self, text, context, src, tgt) -> list[Alternative]:
-        return [Alternative(text=text.upper(), note="literal"), Alternative(text="loose")]
-
-
-@pytest.fixture
-def provider(monkeypatch) -> StubProvider:
-    stub = StubProvider()
-    monkeypatch.setattr(routes, "get_provider", lambda: stub)
-    return stub
-
-
-@pytest.fixture
-def client(tmp_path, monkeypatch, provider) -> TestClient:
-    monkeypatch.setenv("MIRABOOK_DATA_DIR", str(tmp_path))
-    monkeypatch.setenv("MIRABOOK_PROVIDER", "ollama")
-    monkeypatch.setenv("MIRABOOK_SOURCE_LANG", "Spanish")
-    monkeypatch.setenv("MIRABOOK_TARGET_LANG", "English")
-    monkeypatch.delenv("MIRABOOK_BASIC_AUTH", raising=False)
-    get_settings.cache_clear()
-
-    from app.main import create_app
-
-    with TestClient(create_app()) as c:
-        yield c
-    get_settings.cache_clear()
+from app.models import Block, BlockType, BookMeta, TocEntry
+from app.translate.ollama import ModelUnavailable
+from tests.conftest import SAMPLE, StubProvider
 
 
 def seed_book(client: TestClient, book_id: str = "bk1") -> BookMeta:
@@ -101,6 +50,40 @@ def test_health_reports_provider_and_languages(client: TestClient):
     assert body["model"] == "stub:v1"
     assert body["source_lang"] == "Spanish"
     assert body["target_lang"] == "English"
+
+
+def test_a_missing_model_is_a_503_the_reader_can_act_on(client: TestClient, provider):
+    """Not a 500: it is a configuration problem with a one-line fix, and the
+    reader should be told which model rather than shown a traceback."""
+    seed_book(client)
+
+    async def missing(*_args, **_kwargs):
+        raise ModelUnavailable("Ollama at http://x has no model 'gemma4:31b'. Pull it with…")
+
+    provider._translate_text = missing
+    r = client.get("/api/books/bk1/pages/1")
+
+    assert r.status_code == 503
+    assert "gemma4:31b" in r.json()["detail"]
+
+
+def test_health_says_when_the_model_is_not_there(client: TestClient, provider):
+    async def not_ready():
+        raise RuntimeError("Ollama at http://x has no model 'gemma4:31b'")
+
+    provider.ensure_ready = not_ready
+    body = client.get("/api/health").json()
+
+    assert body["status"] == "model unavailable"
+    assert "gemma4:31b" in body["detail"]
+
+
+def test_health_is_ok_when_the_model_answers(client: TestClient, provider):
+    async def ready():
+        return None
+
+    provider.ensure_ready = ready
+    assert client.get("/api/health").json()["status"] == "ok"
 
 
 # --- library ---
@@ -435,6 +418,33 @@ def test_explain_passes_kind_and_languages_through(client: TestClient, kind):
     assert body["kind"] == kind
     assert "'se lo dije'" in body["text"]
     assert "Spanish->English" in body["text"]
+
+
+def test_explain_also_returns_a_short_gloss(client: TestClient):
+    """The gloss is the answer side of a review card; the prose is the detail
+    behind it."""
+    body = client.post("/api/explain", json={"text": "se lo dije", "context": "Ya."}).json()
+    assert body["gloss"] == "gloss of se lo dije"
+    assert body["text"]
+
+
+def test_a_failed_gloss_does_not_take_the_explanation_with_it(client: TestClient, provider):
+    async def no_gloss(*_args, **_kwargs):
+        raise RuntimeError("model said no")
+
+    provider.gloss = no_gloss
+    body = client.post("/api/explain", json={"text": "se lo dije", "context": "Ya."}).json()
+    assert body["gloss"] is None
+    assert "se lo dije" in body["text"]
+
+
+def test_a_failed_explanation_is_still_an_error(client: TestClient, provider):
+    async def boom(*_args, **_kwargs):
+        raise RuntimeError("model said no")
+
+    provider.explain = boom
+    with pytest.raises(RuntimeError):
+        client.post("/api/explain", json={"text": "x", "context": "y"})
 
 
 def test_alternatives_returns_the_option_list(client: TestClient):

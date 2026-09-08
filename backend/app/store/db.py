@@ -3,7 +3,45 @@ import sqlite3
 import threading
 from pathlib import Path
 
-from app.models import Block, BlockType, BookMeta, TocEntry, TranslatedBlock
+from datetime import datetime, timezone
+
+from app.models import (
+    Block,
+    BlockType,
+    BookMeta,
+    Favourite,
+    Reader,
+    ReadingProgress,
+    SavedWord,
+    SyncPayload,
+    TocEntry,
+    TranslatedBlock,
+)
+
+
+def now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _at(value: str | None) -> datetime | None:
+    """Parse a timestamp from a client, which may or may not spell UTC as 'Z'."""
+    if not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+
+
+def _newer(incoming: str | None, existing: str | None) -> bool:
+    """Last write wins, and a record we have never seen always wins."""
+    if existing is None:
+        return True
+    a, b = _at(incoming), _at(existing)
+    if a is None:
+        return False
+    return b is None or a > b
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS books (
@@ -32,6 +70,49 @@ CREATE TABLE IF NOT EXISTS blocks (
   PRIMARY KEY (book_id, block_id)
 );
 CREATE INDEX IF NOT EXISTS idx_blocks_page ON blocks(book_id, page, ord);
+CREATE TABLE IF NOT EXISTS readers (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  avatar TEXT NOT NULL DEFAULT '',
+  settings_json TEXT NOT NULL DEFAULT '{}',
+  updated_at TEXT NOT NULL,
+  deleted_at TEXT
+);
+CREATE TABLE IF NOT EXISTS reading_progress (
+  reader_id TEXT NOT NULL,
+  book_id TEXT NOT NULL,
+  page INTEGER NOT NULL,
+  updated_at TEXT NOT NULL,
+  PRIMARY KEY (reader_id, book_id)
+);
+CREATE TABLE IF NOT EXISTS favourites (
+  reader_id TEXT NOT NULL,
+  book_id TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  deleted_at TEXT,
+  PRIMARY KEY (reader_id, book_id)
+);
+CREATE TABLE IF NOT EXISTS saved_words (
+  id TEXT PRIMARY KEY,
+  reader_id TEXT NOT NULL,
+  text TEXT NOT NULL,
+  context TEXT NOT NULL DEFAULT '',
+  kind TEXT NOT NULL DEFAULT 'grammar',
+  explanation TEXT NOT NULL DEFAULT '',
+  gloss TEXT,
+  book_id TEXT NOT NULL DEFAULT '',
+  book_title TEXT NOT NULL DEFAULT '',
+  page INTEGER,
+  created_at TEXT NOT NULL,
+  deleted_at TEXT,
+  due_at TEXT,
+  interval_days INTEGER NOT NULL DEFAULT 0,
+  ease REAL NOT NULL DEFAULT 2.5,
+  reps INTEGER NOT NULL DEFAULT 0,
+  lapses INTEGER NOT NULL DEFAULT 0,
+  reviewed_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_words_reader ON saved_words(reader_id, due_at);
 CREATE TABLE IF NOT EXISTS translations (
   book_id TEXT NOT NULL,
   block_id TEXT NOT NULL,
@@ -67,6 +148,9 @@ class Store:
             if name not in book_cols:
                 self._conn.execute(f"ALTER TABLE books ADD COLUMN {name} {decl}")
         self._conn.execute("CREATE INDEX IF NOT EXISTS idx_books_source ON books(source)")
+        word_cols = {r[1] for r in self._conn.execute("PRAGMA table_info(saved_words)")}
+        if word_cols and "page" not in word_cols:
+            self._conn.execute("ALTER TABLE saved_words ADD COLUMN page INTEGER")
 
     def close(self) -> None:
         self._conn.close()
@@ -224,6 +308,156 @@ class Store:
         if not sizes:
             return 12.0
         return sizes[len(sizes) // 2]
+
+    # --- readers and their records ---
+    #
+    # Merging is last-write-wins on each record's own timestamp. That can lose
+    # one edit made on two devices while both were offline — a page turn, or a
+    # single review — which is the price of not carrying an event log around.
+    # It cannot lose a record, and it cannot resurrect a deleted one.
+
+    def list_readers(self, include_deleted: bool = False) -> list[Reader]:
+        sql = "SELECT * FROM readers"
+        if not include_deleted:
+            sql += " WHERE deleted_at IS NULL"
+        rows = self._conn.execute(sql + " ORDER BY name").fetchall()
+        return [Reader(**dict(r)) for r in rows]
+
+    def save_readers(self, readers: list[Reader]) -> list[Reader]:
+        """Merge a device's view of who exists, and hand back the merged list."""
+        with self._lock:
+            existing = {
+                r["id"]: r["updated_at"]
+                for r in self._conn.execute("SELECT id, updated_at FROM readers")
+            }
+            for reader in readers:
+                if not _newer(reader.updated_at, existing.get(reader.id)):
+                    continue
+                self._conn.execute(
+                    "INSERT OR REPLACE INTO readers "
+                    "(id, name, avatar, settings_json, updated_at, deleted_at) "
+                    "VALUES (?,?,?,?,?,?)",
+                    (
+                        reader.id,
+                        reader.name,
+                        reader.avatar,
+                        reader.settings_json,
+                        reader.updated_at,
+                        reader.deleted_at,
+                    ),
+                )
+            self._conn.commit()
+        return self.list_readers()
+
+    def sync(self, reader_id: str, since: str | None, incoming: SyncPayload) -> SyncPayload:
+        """Merge what a device has, then return everything it has not seen.
+
+        A record the device just sent can come straight back if the server's
+        copy was newer — which is exactly what should happen.
+        """
+        with self._lock:
+            self._merge_progress(reader_id, incoming.progress)
+            self._merge_favourites(reader_id, incoming.favourites)
+            self._merge_words(reader_id, incoming.words)
+            self._conn.commit()
+        return self._changed_since(reader_id, since)
+
+    def _merge_progress(self, reader_id: str, items: list[ReadingProgress]) -> None:
+        have = {
+            r["book_id"]: r["updated_at"]
+            for r in self._conn.execute(
+                "SELECT book_id, updated_at FROM reading_progress WHERE reader_id = ?",
+                (reader_id,),
+            )
+        }
+        for item in items:
+            if _newer(item.updated_at, have.get(item.book_id)):
+                self._conn.execute(
+                    "INSERT OR REPLACE INTO reading_progress "
+                    "(reader_id, book_id, page, updated_at) VALUES (?,?,?,?)",
+                    (reader_id, item.book_id, item.page, item.updated_at),
+                )
+
+    def _merge_favourites(self, reader_id: str, items: list[Favourite]) -> None:
+        have = {
+            r["book_id"]: max(filter(None, (r["created_at"], r["deleted_at"])), default=None)
+            for r in self._conn.execute(
+                "SELECT book_id, created_at, deleted_at FROM favourites WHERE reader_id = ?",
+                (reader_id,),
+            )
+        }
+        for item in items:
+            stamp = max(filter(None, (item.created_at, item.deleted_at)), default=None)
+            if _newer(stamp, have.get(item.book_id)):
+                self._conn.execute(
+                    "INSERT OR REPLACE INTO favourites "
+                    "(reader_id, book_id, created_at, deleted_at) VALUES (?,?,?,?)",
+                    (reader_id, item.book_id, item.created_at, item.deleted_at),
+                )
+
+    @staticmethod
+    def _word_stamp(created: str | None, deleted: str | None, reviewed: str | None) -> str | None:
+        return max(filter(None, (created, deleted, reviewed)), default=None)
+
+    def _merge_words(self, reader_id: str, items: list[SavedWord]) -> None:
+        have = {
+            r["id"]: self._word_stamp(r["created_at"], r["deleted_at"], r["reviewed_at"])
+            for r in self._conn.execute(
+                "SELECT id, created_at, deleted_at, reviewed_at FROM saved_words "
+                "WHERE reader_id = ?",
+                (reader_id,),
+            )
+        }
+        for w in items:
+            stamp = self._word_stamp(w.created_at, w.deleted_at, w.reviewed_at)
+            if not _newer(stamp, have.get(w.id)):
+                continue
+            self._conn.execute(
+                "INSERT OR REPLACE INTO saved_words "
+                "(id, reader_id, text, context, kind, explanation, gloss, book_id, book_title, "
+                " page, created_at, deleted_at, due_at, interval_days, ease, reps, lapses, "
+                " reviewed_at) "
+                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                (
+                    w.id, reader_id, w.text, w.context, w.kind, w.explanation, w.gloss,
+                    w.book_id, w.book_title, w.page, w.created_at, w.deleted_at, w.due_at,
+                    w.interval_days, w.ease, w.reps, w.lapses, w.reviewed_at,
+                ),
+            )
+
+    def _changed_since(self, reader_id: str, since: str | None) -> SyncPayload:
+        cutoff = _at(since)
+
+        def after(*stamps: str | None) -> bool:
+            if cutoff is None:
+                return True
+            latest = max((d for d in map(_at, stamps) if d), default=None)
+            return latest is not None and latest > cutoff
+
+        progress = [
+            ReadingProgress(book_id=r["book_id"], page=r["page"], updated_at=r["updated_at"])
+            for r in self._conn.execute(
+                "SELECT * FROM reading_progress WHERE reader_id = ?", (reader_id,)
+            )
+            if after(r["updated_at"])
+        ]
+        favourites = [
+            Favourite(
+                book_id=r["book_id"], created_at=r["created_at"], deleted_at=r["deleted_at"]
+            )
+            for r in self._conn.execute(
+                "SELECT * FROM favourites WHERE reader_id = ?", (reader_id,)
+            )
+            if after(r["created_at"], r["deleted_at"])
+        ]
+        words = [
+            SavedWord(**{k: v for k, v in dict(r).items() if k != "reader_id"})
+            for r in self._conn.execute(
+                "SELECT * FROM saved_words WHERE reader_id = ?", (reader_id,)
+            )
+            if after(r["created_at"], r["deleted_at"], r["reviewed_at"])
+        ]
+        return SyncPayload(progress=progress, favourites=favourites, words=words)
 
     # --- translations cache ---
     def get_cached(

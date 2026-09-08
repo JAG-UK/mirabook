@@ -237,6 +237,39 @@ def test_set_shelf_updates_only_that_book(loaded: Store):
     assert loaded.get_book("bk2").shelf == "History"
 
 
+def test_opening_a_pre_page_database_adds_the_column(tmp_path):
+    """saved_words shipped before words remembered their page."""
+    path = tmp_path / "old.db"
+    conn = sqlite3.connect(path)
+    conn.executescript(
+        """
+        CREATE TABLE saved_words (
+          id TEXT PRIMARY KEY, reader_id TEXT NOT NULL, text TEXT NOT NULL,
+          context TEXT NOT NULL DEFAULT '', kind TEXT NOT NULL DEFAULT 'grammar',
+          explanation TEXT NOT NULL DEFAULT '', gloss TEXT,
+          book_id TEXT NOT NULL DEFAULT '', book_title TEXT NOT NULL DEFAULT '',
+          created_at TEXT NOT NULL, deleted_at TEXT, due_at TEXT,
+          interval_days INTEGER NOT NULL DEFAULT 0, ease REAL NOT NULL DEFAULT 2.5,
+          reps INTEGER NOT NULL DEFAULT 0, lapses INTEGER NOT NULL DEFAULT 0,
+          reviewed_at TEXT
+        );
+        INSERT INTO saved_words (id, reader_id, text, created_at)
+        VALUES ('w1', 'r1', 'rodeos', '2026-09-01T10:00:00Z');
+        """
+    )
+    conn.commit()
+    conn.close()
+
+    store = Store(path)
+    try:
+        cols = {r[1] for r in store._conn.execute("PRAGMA table_info(saved_words)")}
+        assert "page" in cols
+        row = store._conn.execute("SELECT text, page FROM saved_words").fetchone()
+        assert row["text"] == "rodeos" and row["page"] is None
+    finally:
+        store.close()
+
+
 def test_opening_a_pre_size_database_adds_the_column(tmp_path):
     """Databases created before `size` existed must upgrade in place."""
     path = tmp_path / "old.db"

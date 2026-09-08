@@ -1,31 +1,46 @@
-import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
+import { sentenceAround } from '../lib/context'
 import { useProfile } from '../lib/profiles'
-import { SavedWord } from '../lib/types'
+import { dueCount } from '../lib/srs'
+import { useReaderData } from '../lib/useReaderData'
 import { listWords, removeWord } from '../lib/vocab'
 
 export default function SavedWords() {
   const { active } = useProfile()
   const navigate = useNavigate()
-  const [words, setWords] = useState<SavedWord[]>(() => listWords(active.id))
+  useReaderData()
+  const words = listWords(active.id)
 
-  function del(id: string) {
-    removeWord(active.id, id)
-    setWords(listWords(active.id))
-  }
+  const del = (id: string) => removeWord(active.id, id)
 
   return (
     <div className="mx-auto max-w-2xl px-5 py-8">
       <header className="mb-6 flex items-center gap-3">
         <button
-          onClick={() => navigate(-1)}
+          onClick={() => navigate('/')}
           className="text-stone-500 hover:text-stone-800"
-          title="Back"
+          title="Back to library"
+          aria-label="Back to library"
         >
           ←
         </button>
         <h1 className="font-serif text-2xl font-bold">Saved words</h1>
         <span className="text-stone-400">· {active.name}</span>
+        {words.length > 0 && (
+          <button
+            onClick={() => navigate('/review')}
+            className="ml-auto rounded-lg bg-stone-800 px-3 py-1.5 text-sm font-medium text-white hover:bg-stone-700"
+          >
+            Review
+            {dueCount(words) > 0 && (
+              <span className="ml-1.5 rounded-full bg-white/20 px-1.5 py-0.5 text-xs">
+                {dueCount(words)} due
+              </span>
+            )}
+          </button>
+        )}
       </header>
 
       {words.length === 0 ? (
@@ -54,11 +69,29 @@ export default function SavedWords() {
                 </button>
               </div>
               {w.context && (
-                <p className="mt-1 text-sm italic text-stone-500">“{w.context}”</p>
+                <p className="mt-1 text-sm italic text-stone-500">
+                  “{sentenceAround(w.context, w.text)}”
+                </p>
               )}
-              <p className="mt-2 text-sm leading-relaxed text-stone-700">{w.explanation}</p>
-              {w.bookTitle && (
-                <p className="mt-2 text-xs text-stone-400">from {w.bookTitle}</p>
+              {w.gloss && <p className="mt-2 text-stone-800">{w.gloss}</p>}
+              <div className="md mt-2 text-sm leading-relaxed text-stone-700">
+                <ReactMarkdown remarkPlugins={[remarkGfm]}>{w.explanation}</ReactMarkdown>
+              </div>
+              {w.book_title && (
+                <p className="mt-2 text-xs text-stone-400">
+                  {w.page ? (
+                    // Opens the reader in peek mode, so looking does not move
+                    // the reader's place in the book.
+                    <Link
+                      to={`/read/${w.book_id}?page=${w.page}`}
+                      className="underline decoration-stone-300 underline-offset-2 hover:text-stone-700"
+                    >
+                      from {w.book_title}, page {w.page}
+                    </Link>
+                  ) : (
+                    <>from {w.book_title}</>
+                  )}
+                </p>
               )}
             </li>
           ))}

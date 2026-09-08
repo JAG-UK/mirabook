@@ -59,7 +59,7 @@ pnpm dev                      # http://localhost:5173
 All settings are environment variables prefixed `MIRABOOK_` (see
 `backend/.env.example`). Switch the high-quality path by setting
 `MIRABOOK_PROVIDER=anthropic` (or `openai`) and the matching API key, or point
-`MIRABOOK_OLLAMA_MODEL` at a larger local model like `gemma4:31b`.
+`MIRABOOK_OLLAMA_MODEL` at a larger local model like `gemma2:27b`.
 
 ## API
 
@@ -123,24 +123,37 @@ small enough to browse instead of sprawling into near-duplicates.
 Ollama auto-detects the GPU (CUDA) — **no code changes are needed**. Just run
 Ollama on the GPU box and point Mirabook at a strong general model that handles
 both translation and the grammar/idiom/alternatives features. On a 32 GB card
-(e.g. RTX 5090), the Gemma 4 medium models run fully on the GPU:
+(e.g. RTX 5090), `gemma2:27b` is the one to beat:
 
 ```bash
-ollama pull gemma4:31b
-export MIRABOOK_OLLAMA_MODEL=gemma4:31b
+ollama pull gemma2:27b
+export MIRABOOK_OLLAMA_MODEL=gemma2:27b
 # raise parallelism on a big GPU (and set OLLAMA_NUM_PARALLEL on the server)
 export MIRABOOK_OLLAMA_CONCURRENCY=4
 ```
 
-| Model | VRAM | Notes |
-| ----- | ---- | ----- |
-| `gemma4:31b` | ~20 GB | Dense, best quality — the direct successor to `gemma2:27b` |
-| `gemma4:26b` | ~19 GB | Mixture-of-experts (3.8B active): far faster per block, same footprint |
-| `translategemma:27b` | ~17 GB | Purpose-built translator (55 languages); check the aids meet your bar |
+Measured on an RTX 5090 with `scripts/compare_models.py`, translating the same
+two blocks:
 
-`gemma4:26b` is worth trying first if you download whole books for offline
-reading — only a fraction of its weights are active per token, so it translates
-a book far faster than a dense model of the same size.
+| Model | Per block | Whole book | Notes |
+| ----- | --------- | ---------- | ----- |
+| `gemma2:27b` | 0.35 s | ~3 min | Fastest, and its reading aids are the most concise |
+| `translategemma:27b` | 0.38 s | ~3 min | As quick, but see the caveat below |
+| `gemma4:26b` | 2.18 s | ~16 min | Mixture-of-experts, and no faster for it |
+| `gemma4:31b` | 6.23 s | ~45 min | Newest and by far the slowest |
+
+Translation quality was close enough across all four to come down to taste, so
+speed decides it — hence the default. Two things worth knowing.
+
+Newer is not faster: the Gemma 4 models are 6× and 18× slower than a Gemma 2
+of the same size, and the mixture-of-experts model is not quicker than the
+dense one despite activating a fraction of its weights. Fewer active
+parameters means less arithmetic, not less waiting.
+
+`translategemma` translates prose as well as anything here, but it answered
+the "other translations" feature with whole-sentence translations rather than
+alternatives for the highlighted phrase. If you use that feature, prefer a
+general model.
 
 **Avoid reasoning models** (`qwen3`, `deepseek-r1`, `phi4-mini-reasoning`, …).
 They think before answering, which is wasted on block translation and costs
@@ -166,18 +179,43 @@ Switching models re-translates each page once (the cache is keyed per model).
 `backend/scripts/reingest.py` and the in-app "Download for offline" flow are
 handy ways to pre-translate whole books on the fast GPU.
 
-## Serving over the internet
+## Serving it
 
-`scripts/serve.sh` builds the frontend, serves the whole app (SPA + API + media)
-from the backend on one port, and opens a public **Cloudflare quick tunnel**:
+`scripts/serve.sh` builds the frontend and serves the whole app (SPA + API +
+media) from the backend on one port:
 
 ```bash
-# strongly recommended: protect the public URL
-export MIRABOOK_BASIC_AUTH=reader:your-strong-password
-./scripts/serve.sh        # prints an https://….trycloudflare.com URL
+./scripts/serve.sh
 ```
 
-The backend has no built-in accounts, so set `MIRABOOK_BASIC_AUTH` (HTTP Basic on
-every route) before exposing it publicly, or front it with Cloudflare Access /
-your own reverse proxy. For single-origin serving without a tunnel, set
-`MIRABOOK_STATIC_DIR=../frontend/dist` and run uvicorn yourself.
+It binds to `127.0.0.1`, so nothing outside the machine can reach it. To read
+on another device, forward the port over SSH and open `http://localhost:8000`
+there:
+
+```bash
+ssh -N -L 8000:localhost:8000 you@your-server
+```
+
+That keeps the exposed service OpenSSH rather than an application with one
+shared password, and it needs no code.
+
+### Putting it on the open internet
+
+```bash
+export MIRABOOK_BASIC_AUTH=reader:your-strong-password
+PUBLIC=1 ./scripts/serve.sh        # prints an https://….trycloudflare.com URL
+```
+
+`PUBLIC=1` opens a Cloudflare quick tunnel. It is opt-in because a tunnel
+reaches the app over loopback from the same machine, so opening one undoes the
+loopback bind completely.
+
+The backend has no accounts — `MIRABOOK_BASIC_AUTH` is one shared password
+checked on every route, with no rate limiting behind it. For anything more than
+a household, front it with Cloudflare Access or your own reverse proxy. Treat
+the quick-tunnel URL as public: it changes on every restart, which is churn
+rather than secrecy.
+
+`HOST=0.0.0.0` exposes it on the LAN without a tunnel. For single-origin
+serving under your own reverse proxy, set `MIRABOOK_STATIC_DIR=../frontend/dist`
+and run uvicorn yourself.

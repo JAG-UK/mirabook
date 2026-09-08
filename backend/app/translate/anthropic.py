@@ -3,11 +3,13 @@ import json
 from app.models import Alternative, Explanation
 from app.translate.base import (
     ALTERNATIVES_SYSTEM,
+    GLOSS_SYSTEM,
     EXPLAIN_GRAMMAR_SYSTEM,
     EXPLAIN_IDIOM_SYSTEM,
     PROMPT_VERSION,
     TRANSLATE_SYSTEM,
     TranslationProvider,
+    clean_translation,
 )
 
 
@@ -49,6 +51,11 @@ class AnthropicProvider(TranslationProvider):
 
     async def _translate_text(self, text: str, src: str, tgt: str) -> str:
         return await self._msg(TRANSLATE_SYSTEM.format(src=src, tgt=tgt), text)
+
+    async def gloss(self, text: str, context: str, src: str, tgt: str) -> str:
+        system = GLOSS_SYSTEM.format(src=src, tgt=tgt)
+        user = f'Highlighted phrase: "{text}"\n\nSurrounding sentence: "{context}"'
+        return clean_translation(await self._msg(system, user, max_tokens=512), text)
 
     async def explain(
         self, text: str, context: str, kind: str, src: str, tgt: str

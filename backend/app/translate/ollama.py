@@ -6,12 +6,18 @@ import httpx
 from app.models import Alternative, Explanation
 from app.translate.base import (
     ALTERNATIVES_SYSTEM,
+    GLOSS_SYSTEM,
     EXPLAIN_GRAMMAR_SYSTEM,
     EXPLAIN_IDIOM_SYSTEM,
     PROMPT_VERSION,
     TRANSLATE_SYSTEM,
     TranslationProvider,
+    clean_translation,
 )
+
+
+class ModelUnavailable(RuntimeError):
+    """The configured model is not there. Actionable, so it is not a 500."""
 
 
 class OllamaProvider(TranslationProvider):
@@ -62,6 +68,15 @@ class OllamaProvider(TranslationProvider):
             payload["format"] = "json"
         async with httpx.AsyncClient(timeout=self._timeout) as client:
             r = await client.post(f"{self._host}/api/chat", json=payload)
+            if r.status_code == 404:
+                # Ollama answers 404 for a model it has not pulled. Raised as a
+                # traceback this reads as a server fault; it is a one-line fix,
+                # and the reader deserves to be told which one.
+                raise ModelUnavailable(
+                    f"Ollama at {self._host} has no model {self._model!r}. "
+                    f"Pull it with `ollama pull {self._model}`, or set "
+                    "MIRABOOK_OLLAMA_MODEL to one it has."
+                )
             r.raise_for_status()
             return r.json()["message"]["content"].strip()
 
@@ -114,6 +129,11 @@ class OllamaProvider(TranslationProvider):
 
     async def _translate_text(self, text: str, src: str, tgt: str) -> str:
         return await self._chat(TRANSLATE_SYSTEM.format(src=src, tgt=tgt), text)
+
+    async def gloss(self, text: str, context: str, src: str, tgt: str) -> str:
+        system = GLOSS_SYSTEM.format(src=src, tgt=tgt)
+        user = f'Highlighted phrase: "{text}"\n\nSurrounding sentence: "{context}"'
+        return clean_translation(await self._chat(system, user), text)
 
     async def explain(
         self, text: str, context: str, kind: str, src: str, tgt: str

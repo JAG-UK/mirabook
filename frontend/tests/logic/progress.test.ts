@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { getProgress, listProgress, saveProgress } from '../../src/lib/progress'
 import { addWord, countWords, listWords, removeWord } from '../../src/lib/vocab'
 
@@ -74,16 +74,19 @@ describe('saved words', () => {
   })
 
   it('lists newest first', () => {
-    const first = addWord(JON, entry)
-    const second = addWord(JON, { ...entry, text: 'de la Mancha' })
-    // Saves within the same millisecond would tie, so nudge the first back.
-    const store = JSON.parse(localStorage.getItem('mirabook:vocab')!)
-    store[JON] = store[JON].map((w: { id: string; at: number }) =>
-      w.id === first.id ? { ...w, at: w.at - 1000 } : w,
-    )
-    localStorage.setItem('mirabook:vocab', JSON.stringify(store))
+    // Two saves in the same millisecond would tie on created_at, so move the
+    // clock between them rather than reaching into storage.
+    vi.useFakeTimers()
+    try {
+      vi.setSystemTime(new Date('2026-09-01T10:00:00Z'))
+      const first = addWord(JON, entry)
+      vi.setSystemTime(new Date('2026-09-02T10:00:00Z'))
+      const second = addWord(JON, { ...entry, text: 'de la Mancha' })
 
-    expect(listWords(JON).map((w) => w.id)).toEqual([second.id, first.id])
+      expect(listWords(JON).map((w) => w.id)).toEqual([second.id, first.id])
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('keeps each reader’s words to themselves', () => {

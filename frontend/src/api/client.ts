@@ -54,6 +54,66 @@ export interface Shelf {
 export interface Explanation {
   kind: string
   text: string
+  /** A few words for the back of a review card. */
+  gloss?: string | null
+}
+
+// --- reader-owned records ---------------------------------------------
+//
+// These mirror the server's shape exactly, snake_case included, so nothing
+// has to be translated on the way in or out. Ids are generated here, which is
+// what lets a record be created offline and keep its identity.
+
+export interface Reader {
+  id: string
+  name: string
+  avatar: string
+  settings_json: string
+  updated_at: string
+  deleted_at?: string | null
+}
+
+export interface ReadingProgress {
+  book_id: string
+  page: number
+  updated_at: string
+}
+
+export interface Favourite {
+  book_id: string
+  created_at: string
+  deleted_at?: string | null
+}
+
+export interface SavedWord {
+  id: string
+  text: string
+  context: string
+  kind: string
+  explanation: string
+  gloss?: string | null
+  book_id: string
+  book_title: string
+  /** Where in the book it was highlighted; absent on words saved before this. */
+  page?: number | null
+  created_at: string
+  deleted_at?: string | null
+  due_at?: string | null
+  interval_days: number
+  ease: number
+  reps: number
+  lapses: number
+  reviewed_at?: string | null
+}
+
+export interface SyncPayload {
+  progress: ReadingProgress[]
+  favourites: Favourite[]
+  words: SavedWord[]
+}
+
+export interface SyncResponse extends SyncPayload {
+  now: string
 }
 
 export interface Alternative {
@@ -61,9 +121,20 @@ export interface Alternative {
   note?: string | null
 }
 
+/**
+ * Turn a failed response into an error worth showing.
+ *
+ * The backend explains what went wrong — which model is missing, which shelf
+ * does not exist — and "500 Internal Server Error" throws all of that away.
+ */
+async function failure(r: Response): Promise<Error> {
+  const detail = await r.json().catch(() => null)
+  return new Error(detail?.detail ?? `${r.status} ${r.statusText}`)
+}
+
 async function getJSON<T>(path: string): Promise<T> {
   const r = await fetch(`${BASE}${path}`)
-  if (!r.ok) throw new Error(`${r.status} ${r.statusText}`)
+  if (!r.ok) throw await failure(r)
   return r.json() as Promise<T>
 }
 
@@ -73,7 +144,7 @@ async function postJSON<T>(path: string, body: unknown): Promise<T> {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   })
-  if (!r.ok) throw new Error(`${r.status} ${r.statusText}`)
+  if (!r.ok) throw await failure(r)
   return r.json() as Promise<T>
 }
 
@@ -83,12 +154,7 @@ async function patchJSON<T>(path: string, body: unknown): Promise<T> {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   })
-  if (!r.ok) {
-    // The backend explains a rejected edit ("'Bangers' is not one of the
-    // shelves"); that is worth showing rather than a bare status code.
-    const detail = await r.json().catch(() => null)
-    throw new Error(detail?.detail ?? `${r.status} ${r.statusText}`)
-  }
+  if (!r.ok) throw await failure(r)
   return r.json() as Promise<T>
 }
 
@@ -125,6 +191,27 @@ export async function uploadBook(file: File): Promise<BookMeta> {
   if (!r.ok) throw new Error(`${r.status} ${r.statusText}`)
   return r.json() as Promise<BookMeta>
 }
+
+export const listReaders = () => getJSON<Reader[]>('/api/readers')
+
+async function putJSON<T>(path: string, body: unknown): Promise<T> {
+  const r = await fetch(`${BASE}${path}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+  if (!r.ok) throw new Error(`${r.status} ${r.statusText}`)
+  return r.json() as Promise<T>
+}
+
+export const saveReaders = (readers: Reader[]) => putJSON<Reader[]>('/api/readers', readers)
+
+/** One round trip: send what changed, receive everything since `since`. */
+export const syncReader = (readerId: string, since: string | null, payload: SyncPayload) =>
+  postJSON<SyncResponse>(
+    `/api/readers/${readerId}/sync${since ? `?since=${encodeURIComponent(since)}` : ''}`,
+    payload,
+  )
 
 export const explain = (text: string, context: string, kind: 'grammar' | 'idiom') =>
   postJSON<Explanation>('/api/explain', { text, context, kind })

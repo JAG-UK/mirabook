@@ -4,6 +4,7 @@
 // point of this tier — but pulling in jsdom just for a key/value store would
 // make the fast suite slow. Eight lines is cheaper.
 import { beforeEach } from 'vitest'
+import { __reset } from '../src/lib/readerStore'
 
 class MemoryStorage implements Storage {
   private data = new Map<string, string>()
@@ -29,5 +30,10 @@ class MemoryStorage implements Storage {
 
 globalThis.localStorage = new MemoryStorage()
 
-// Each test starts from an empty shelf.
-beforeEach(() => localStorage.clear())
+// Each test starts from an empty shelf. The reader mirror is held in a
+// module-level map, so clearing storage is no longer enough on its own — it
+// has to be dropped too, or one test's words turn up in the next.
+beforeEach(() => {
+  localStorage.clear()
+  __reset()
+})

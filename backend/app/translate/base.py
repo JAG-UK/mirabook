@@ -66,6 +66,14 @@ EXPLAIN_IDIOM_SYSTEM = (
     "natural {tgt} equivalent. If it is not idiomatic, say so briefly."
 )
 
+GLOSS_SYSTEM = (
+    "You are a {src}-to-{tgt} dictionary. Give the shortest natural {tgt} "
+    "equivalent of the highlighted {src} phrase as it is used in the sentence "
+    "— the answer someone would want on the back of a flashcard.\n"
+    "Reply with the equivalent alone: no quotation marks, no explanation, no "
+    "trailing full stop, at most eight words."
+)
+
 ALTERNATIVES_SYSTEM = (
     "You are an expert {src}->{tgt} translator. Give 2-4 distinct natural {tgt} "
     "translations of the highlighted phrase, ranging from literal to idiomatic. "
@@ -109,6 +117,12 @@ class TranslationProvider(ABC):
             return TranslatedBlock(id=b.id, text=clean_translation(raw, b.text))
 
         return list(await asyncio.gather(*(run(b) for b in blocks)))
+
+    @abstractmethod
+    async def gloss(self, text: str, context: str, src: str, tgt: str) -> str:
+        """A few words for the back of a review card, from the same model and
+        the same context that produced the explanation."""
+        ...
 
     @abstractmethod
     async def explain(

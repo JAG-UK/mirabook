@@ -1,3 +1,4 @@
+import asyncio
 import shutil
 import uuid
 from pathlib import Path
@@ -14,9 +15,12 @@ from app.models import (
     BookMeta,
     Explanation,
     Page,
+    Reader,
+    SyncPayload,
+    SyncResponse,
     TranslatedBlock,
 )
-from app.store.db import Store
+from app.store.db import Store, now_iso
 from app.translate.factory import get_provider
 
 router = APIRouter()
@@ -32,19 +36,64 @@ def _settings(req: Request):
 
 @router.get("/health")
 async def health(req: Request):
+    """Provider status, including whether the configured model is actually
+    available — so a missing model shows up here rather than the first time
+    somebody opens a book."""
     s = _settings(req)
-    return {
+    provider = get_provider()
+    body = {
         "status": "ok",
         "provider": s.provider,
-        "model": get_provider().model_id,
+        "model": provider.model_id,
         "source_lang": s.source_lang,
         "target_lang": s.target_lang,
     }
+    ready = getattr(provider, "ensure_ready", None)
+    if ready:
+        try:
+            await ready()
+        except RuntimeError as e:
+            body["status"] = "model unavailable"
+            body["detail"] = str(e)
+    return body
 
 
 @router.get("/books", response_model=list[BookMeta])
 async def list_books(req: Request):
     return _store(req).list_books()
+
+
+@router.get("/readers", response_model=list[Reader])
+async def list_readers(req: Request):
+    """Who reads on this Mirabook. Held centrally so a phone and a tablet show
+    the same people — not accounts: the app has one password."""
+    return _store(req).list_readers()
+
+
+@router.put("/readers", response_model=list[Reader])
+async def save_readers(req: Request, readers: list[Reader]):
+    """Merge a device's view of the reader list and return the merged result.
+    Renames, new readers and removals all arrive this way; a removal is a
+    `deleted_at` rather than a delete, so it survives the trip."""
+    return _store(req).save_readers(readers)
+
+
+@router.post("/readers/{reader_id}/sync", response_model=SyncResponse)
+async def sync(req: Request, reader_id: str, body: SyncPayload, since: str | None = None):
+    """Exchange one reader's records in a single round trip.
+
+    The device sends whatever it has changed and the token from its last sync;
+    it gets back everything changed since. Omitting `since` asks for the lot,
+    which is what a new device does.
+    """
+    store = _store(req)
+    if not any(r.id == reader_id for r in store.list_readers()):
+        raise HTTPException(404, "Reader not found")
+    # Read the clock before merging: anything written during this call must
+    # look newer than the token we hand back, or the next sync will skip it.
+    token = now_iso()
+    changed = store.sync(reader_id, since, body)
+    return SyncResponse(now=token, **changed.model_dump())
 
 
 class Shelf(BaseModel):
@@ -244,10 +293,26 @@ class ExplainRequest(BaseModel):
 
 @router.post("/explain", response_model=Explanation)
 async def explain(req: Request, body: ExplainRequest):
+    """Explain a highlighted phrase, and gloss it in a few words.
+
+    Both come from the same model looking at the same sentence, and run
+    concurrently so the gloss is close to free in wall-clock terms. The gloss
+    is what a review card shows first — a paragraph of prose tells you the
+    answer before you can judge whether you knew it.
+    """
     s = _settings(req)
-    return await get_provider().explain(
-        body.text, body.context, body.kind, s.source_lang, s.target_lang
+    provider = get_provider()
+    explanation, gloss = await asyncio.gather(
+        provider.explain(body.text, body.context, body.kind, s.source_lang, s.target_lang),
+        provider.gloss(body.text, body.context, s.source_lang, s.target_lang),
+        return_exceptions=True,
     )
+    if isinstance(explanation, BaseException):
+        raise explanation
+    # A missing gloss is a smaller loss than a failed lookup, so it is allowed
+    # to come back empty rather than taking the explanation down with it.
+    explanation.gloss = None if isinstance(gloss, BaseException) else (gloss.strip() or None)
+    return explanation
 
 
 class AlternativesRequest(BaseModel):
