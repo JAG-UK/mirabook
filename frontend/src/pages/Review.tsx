@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { SavedWord } from '../api/client'
@@ -148,7 +148,18 @@ export default function Review() {
     <Shell onBack={() => navigate('/words')} progress={`${Math.min(at + 1, total)} of ${total}`}>
       <div className="rounded-xl border border-stone-200 bg-white p-6 shadow-sm">
         {card.book_title && (
-          <p className="text-xs text-stone-400">from {card.book_title}</p>
+          <p className="text-xs text-stone-400">
+            {card.page ? (
+              <Link
+                to={`/read/${card.book_id}?page=${card.page}`}
+                className="underline decoration-stone-300 underline-offset-2 hover:text-stone-700"
+              >
+                from {card.book_title}, page {card.page}
+              </Link>
+            ) : (
+              <>from {card.book_title}</>
+            )}
+          </p>
         )}
 
         {/* The sentence it came from, with the phrase in place. Reviewing a

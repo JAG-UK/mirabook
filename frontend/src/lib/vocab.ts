@@ -14,6 +14,7 @@ export interface NewWord {
   gloss?: string | null
   bookId: string
   bookTitle: string
+  page?: number | null
 }
 
 export function listWords(readerId: string): SavedWord[] {
@@ -30,6 +31,7 @@ export function addWord(readerId: string, w: NewWord): SavedWord {
     gloss: w.gloss ?? null,
     book_id: w.bookId,
     book_title: w.bookTitle,
+    page: w.page ?? null,
     created_at: nowIso(),
     // Never reviewed, so due immediately — the review screen paces the
     // backlog rather than the data pretending it is spread out.

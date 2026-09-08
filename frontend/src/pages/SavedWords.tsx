@@ -1,4 +1,4 @@
-import { useNavigate } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { sentenceAround } from '../lib/context'
@@ -78,7 +78,20 @@ export default function SavedWords() {
                 <ReactMarkdown remarkPlugins={[remarkGfm]}>{w.explanation}</ReactMarkdown>
               </div>
               {w.book_title && (
-                <p className="mt-2 text-xs text-stone-400">from {w.book_title}</p>
+                <p className="mt-2 text-xs text-stone-400">
+                  {w.page ? (
+                    // Opens the reader in peek mode, so looking does not move
+                    // the reader's place in the book.
+                    <Link
+                      to={`/read/${w.book_id}?page=${w.page}`}
+                      className="underline decoration-stone-300 underline-offset-2 hover:text-stone-700"
+                    >
+                      from {w.book_title}, page {w.page}
+                    </Link>
+                  ) : (
+                    <>from {w.book_title}</>
+                  )}
+                </p>
               )}
             </li>
           ))}

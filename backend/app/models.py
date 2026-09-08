@@ -111,6 +111,7 @@ class SavedWord(BaseModel):
     gloss: str | None = None  # the short answer, shown first when reviewing
     book_id: str = ""
     book_title: str = ""
+    page: int | None = None  # where in the book it was highlighted
     created_at: str
     deleted_at: str | None = None
 

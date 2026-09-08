@@ -102,6 +102,7 @@ CREATE TABLE IF NOT EXISTS saved_words (
   gloss TEXT,
   book_id TEXT NOT NULL DEFAULT '',
   book_title TEXT NOT NULL DEFAULT '',
+  page INTEGER,
   created_at TEXT NOT NULL,
   deleted_at TEXT,
   due_at TEXT,
@@ -147,6 +148,9 @@ class Store:
             if name not in book_cols:
                 self._conn.execute(f"ALTER TABLE books ADD COLUMN {name} {decl}")
         self._conn.execute("CREATE INDEX IF NOT EXISTS idx_books_source ON books(source)")
+        word_cols = {r[1] for r in self._conn.execute("PRAGMA table_info(saved_words)")}
+        if word_cols and "page" not in word_cols:
+            self._conn.execute("ALTER TABLE saved_words ADD COLUMN page INTEGER")
 
     def close(self) -> None:
         self._conn.close()
@@ -411,11 +415,12 @@ class Store:
             self._conn.execute(
                 "INSERT OR REPLACE INTO saved_words "
                 "(id, reader_id, text, context, kind, explanation, gloss, book_id, book_title, "
-                " created_at, deleted_at, due_at, interval_days, ease, reps, lapses, reviewed_at) "
-                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                " page, created_at, deleted_at, due_at, interval_days, ease, reps, lapses, "
+                " reviewed_at) "
+                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (
                     w.id, reader_id, w.text, w.context, w.kind, w.explanation, w.gloss,
-                    w.book_id, w.book_title, w.created_at, w.deleted_at, w.due_at,
+                    w.book_id, w.book_title, w.page, w.created_at, w.deleted_at, w.due_at,
                     w.interval_days, w.ease, w.reps, w.lapses, w.reviewed_at,
                 ),
             )

@@ -134,6 +134,20 @@ describe('the saved words list', () => {
     expect(screen.getByText('the library')).toBeInTheDocument()
   })
 
+  it('links back to the page it came from, in peek mode', async () => {
+    openWords([word({ page: 42 })])
+    const link = await screen.findByRole('link', { name: /from Harry Potter, page 42/ })
+    // ?page= is what puts the reader into peek, so following it cannot move
+    // the reader's place in the book.
+    expect(link).toHaveAttribute('href', '/read/bk1?page=42')
+  })
+
+  it('offers no link for a word saved before pages were recorded', async () => {
+    openWords([word({ page: null })])
+    expect(await screen.findByText('from Harry Potter')).toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: /Harry Potter/ })).not.toBeInTheDocument()
+  })
+
   it('says what to do when nothing has been saved', async () => {
     openWords([])
     expect(await screen.findByText(/no saved words yet/i)).toBeInTheDocument()

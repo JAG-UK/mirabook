@@ -1,5 +1,5 @@
 import { ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Link, useParams } from 'react-router-dom'
+import { Link, useParams, useSearchParams } from 'react-router-dom'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import {
@@ -35,11 +35,18 @@ interface PopoverState {
 
 export default function Reader() {
   const { bookId = '' } = useParams()
+  const [params] = useSearchParams()
   const { active } = useProfile()
   const settings = active.settings
   const [meta, setMeta] = useState<BookMeta | null>(null)
-  // Resume where this profile left off (bookmark).
-  const [page, setPage] = useState(() => getProgress(active.id, bookId))
+
+  // Arriving with ?page= means something sent you here to look at one place —
+  // a saved word, say. That is a peek, not a reading session: it must not
+  // move a bookmark four hundred pages away.
+  const asked = Number(params.get('page')) || null
+  const [mode, setMode] = useState<'reading' | 'peek'>(asked ? 'peek' : 'reading')
+  const peeking = mode === 'peek'
+  const [page, setPage] = useState(() => asked ?? getProgress(active.id, bookId))
   const [dir, setDir] = useState<'next' | 'prev'>('next')
   const [data, setData] = useState<PageData | null>(null)
   const [loading, setLoading] = useState(true)
@@ -90,10 +97,12 @@ export default function Reader() {
     }
   }, [bookId, goOffline])
 
-  // Remember the page (bookmark) for this profile whenever it changes.
+  // Remember the page (bookmark) for this profile whenever it changes —
+  // unless this is a peek, where paging around to check context should leave
+  // the reader's real place alone.
   useEffect(() => {
-    if (meta) saveProgress(active.id, bookId, page)
-  }, [active.id, bookId, page, meta])
+    if (meta && !peeking) saveProgress(active.id, bookId, page)
+  }, [active.id, bookId, page, meta, peeking])
 
   // Replay the page-turn leaf on each turn (flip animation only).
   useEffect(() => {
@@ -163,7 +172,9 @@ export default function Reader() {
         if (cancelled) return
         setData(d)
         setLoading(false)
-        if (page < meta.page_count) ensurePage(page + 1).catch(() => {})
+        // Peeking is a glance, so there is no next page to warm — and warming
+        // one costs the model a translation nobody asked for.
+        if (!peeking && page < meta.page_count) ensurePage(page + 1).catch(() => {})
       })
       .catch((e) => {
         if (cancelled) return
@@ -173,7 +184,7 @@ export default function Reader() {
     return () => {
       cancelled = true
     }
-  }, [meta, page, ensurePage])
+  }, [meta, page, ensurePage, peeking])
 
   const go = useCallback(
     (n: number) => {
@@ -250,6 +261,7 @@ export default function Reader() {
           gloss: ex.gloss, // the answer side of the review card
           bookId,
           bookTitle: meta?.title ?? '',
+          page, // so a review card can offer to show it in place
         })
       setPopover(
         (p) => p && { ...p, loading: false, content: <ExplainBody text={ex.text} onSave={onSave} /> },
@@ -336,6 +348,26 @@ export default function Reader() {
           )}
 
           <div className="ml-auto flex items-center gap-2">
+            <button
+              onClick={() => {
+                // Switching to reading means "I am reading here now", so the
+                // bookmark moves to this page rather than staying behind.
+                if (peeking) saveProgress(active.id, bookId, page)
+                setMode(peeking ? 'reading' : 'peek')
+              }}
+              className={`rounded px-2.5 py-1 text-sm ${
+                peeking
+                  ? 'bg-amber-100 text-amber-900'
+                  : 'border border-stone-400 text-[color:var(--ink-soft)]'
+              }`}
+              title={
+                peeking
+                  ? 'Peeking — your place in the book is not being moved. Click to read from here.'
+                  : 'Reading — your place is saved as you go. Click to peek without moving it.'
+              }
+            >
+              {peeking ? 'Peeking' : 'Reading'}
+            </button>
             <button
               onClick={() => setBlurEnabled((b) => !b)}
               className={`rounded px-2.5 py-1 text-sm ${

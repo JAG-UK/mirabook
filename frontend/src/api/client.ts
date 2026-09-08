@@ -94,6 +94,8 @@ export interface SavedWord {
   gloss?: string | null
   book_id: string
   book_title: string
+  /** Where in the book it was highlighted; absent on words saved before this. */
+  page?: number | null
   created_at: string
   deleted_at?: string | null
   due_at?: string | null

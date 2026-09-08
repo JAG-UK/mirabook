@@ -67,9 +67,9 @@ const pageData = (n: number): PageData => ({
   translations: [{ id: `p${n}-b0`, text: `Page ${n} in English`, alternatives: [] }],
 })
 
-function openReader() {
+function openReader(search = '') {
   render(
-    <MemoryRouter initialEntries={['/read/bk1']}>
+    <MemoryRouter initialEntries={[`/read/bk1${search}`]}>
       <ProfileProvider>
         <Routes>
           <Route path="/read/:bookId" element={<Reader />} />
@@ -239,6 +239,74 @@ describe('the anti-cheat blur', () => {
   })
 })
 
+describe('peeking', () => {
+  const bookmarkedAt = (n: number) => putProgress('p1', 'bk1', n)
+
+  it('opens at the page it was sent to, not the bookmark', async () => {
+    bookmarkedAt(2)
+    openReader('?page=4')
+    expect(await onPage(4)).toBeInTheDocument()
+  })
+
+  it('says it is peeking', async () => {
+    openReader('?page=4')
+    await onPage(4)
+    expect(screen.getByRole('button', { name: 'Peeking' })).toBeInTheDocument()
+  })
+
+  it('leaves the reader’s place alone', async () => {
+    // The whole point: glancing at page 4 must not lose page 200.
+    bookmarkedAt(200)
+    openReader('?page=4')
+    await onPage(4)
+    expect(getProgress('p1', 'bk1')).toBe(200)
+  })
+
+  it('leaves it alone even when you page around to see the context', async () => {
+    bookmarkedAt(200)
+    const user = openReader('?page=4')
+    await onPage(4)
+
+    await user.keyboard('{ArrowRight}')
+    await onPage(5)
+    await user.keyboard('{ArrowLeft}')
+    await onPage(4)
+
+    expect(getProgress('p1', 'bk1')).toBe(200)
+  })
+
+  it('does not warm the next page for a glance', async () => {
+    openReader('?page=4')
+    await onPage(4)
+    await waitFor(() => expect(getPage).toHaveBeenCalled())
+    expect(getPage.mock.calls.map((c) => c[1])).not.toContain(5)
+  })
+
+  it('starts reading from here when the switch is flipped', async () => {
+    bookmarkedAt(200)
+    const user = openReader('?page=4')
+    await onPage(4)
+
+    await user.click(screen.getByRole('button', { name: 'Peeking' }))
+
+    expect(screen.getByRole('button', { name: 'Reading' })).toBeInTheDocument()
+    expect(getProgress('p1', 'bk1')).toBe(4)
+  })
+
+  it('can be entered deliberately from a normal reading session', async () => {
+    bookmarkedAt(2)
+    const user = openReader()
+    await onPage(2)
+    expect(screen.getByRole('button', { name: 'Reading' })).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Reading' }))
+    await user.keyboard('{ArrowRight}')
+    await onPage(3)
+
+    expect(getProgress('p1', 'bk1')).toBe(2) // still where it was
+  })
+})
+
 describe('saving a phrase', () => {
   /**
    * Drive the drag-select path.
@@ -278,6 +346,7 @@ describe('saving a phrase', () => {
     expect(saved[0].gloss).toBe("don't beat about the bush")
     expect(saved[0].text).toBe('Página 1')
     expect(saved[0].book_title).toBe('Don Quijote')
+    expect(saved[0].page).toBe(1) // so the card can link back to it
   })
 
   it('saves a word even when the model offered no gloss', async () => {

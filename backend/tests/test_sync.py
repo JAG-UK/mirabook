@@ -154,6 +154,16 @@ def test_a_saved_word_round_trips_with_its_gloss(store: Store):
     assert got.kind == "idiom"
 
 
+def test_a_word_remembers_the_page_it_came_from(store: Store):
+    sync(store, words=[word(page=42)])
+    assert sync(store).words[0].page == 42
+
+
+def test_a_word_saved_before_pages_were_recorded_is_still_fine(store: Store):
+    sync(store, words=[word()])
+    assert sync(store).words[0].page is None
+
+
 def test_review_state_round_trips(store: Store):
     sync(
         store,
