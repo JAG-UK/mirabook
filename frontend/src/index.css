@@ -335,6 +335,40 @@ body {
   background: #2f4f3e;
 }
 
+/* favourite control, left of the edit control. Unlike its neighbours this one
+   stays visible once set — a favourite you can only see by hovering is no use
+   for picking a book off the shelf. */
+.spine-fav {
+  position: absolute;
+  top: -8px;
+  right: 37px;
+  z-index: 4;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  font-size: 10px;
+  line-height: 1;
+  color: #fff;
+  background: rgba(40, 30, 20, 0.78);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+  opacity: 0;
+  transition: opacity 0.14s ease, background 0.14s ease;
+}
+.spine-wrap:hover .spine-fav {
+  opacity: 1;
+}
+.spine-fav.on {
+  opacity: 1;
+  color: #f5c542;
+  background: rgba(40, 30, 20, 0.86);
+}
+.spine-fav:hover {
+  background: #8a6d1f;
+}
+
 /* download / delete control at the foot of a spine */
 .spine-foot {
   position: absolute;
