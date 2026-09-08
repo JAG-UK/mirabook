@@ -57,7 +57,8 @@ export function groupByShelf(books: BookMeta[], shelves: Shelf[]): ShelfGroup[] 
   for (const book of books) {
     const name = book.shelf ?? UNSHELVED
     const list = bucket.get(name)
-    list ? list.push(book) : bucket.set(name, [book])
+    if (list) list.push(book)
+    else bucket.set(name, [book])
   }
 
   const order = shelves.map((s) => s.name)

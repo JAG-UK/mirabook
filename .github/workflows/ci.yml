@@ -31,6 +31,55 @@ jobs:
         run: uv run pytest -q
         working-directory: backend
 
+  backend-lint:
+    name: Backend lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: backend/uv.lock
+
+      - name: Run ruff
+        # `ruff check` only. The repo is not `ruff format` clean, and
+        # reformatting thirty files to make a lint job pass would bury real
+        # changes under whitespace.
+        run: uv run ruff check .
+        working-directory: backend
+
+  frontend-lint:
+    name: Frontend lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Install Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+        working-directory: frontend
+
+      - name: Run eslint
+        # --max-warnings pins the known react-hooks backlog at its current
+        # size, so it cannot quietly grow. See eslint.config.js.
+        run: pnpm lint
+        working-directory: frontend
+
+      - name: Typecheck
+        run: pnpm typecheck
+        working-directory: frontend
+
   frontend-logic:
     name: Frontend logic tests
     runs-on: ubuntu-latest
