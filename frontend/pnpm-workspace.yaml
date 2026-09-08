@@ -1,0 +1,5 @@
+# esbuild's postinstall fetches the platform binary vite needs. Without
+# this approval a clean `pnpm install` exits 1 (ERR_PNPM_IGNORED_BUILDS),
+# which would break CI on its first step.
+allowBuilds:
+  esbuild: true

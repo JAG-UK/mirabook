@@ -6,6 +6,7 @@ import EditBookDialog from '../components/EditBookDialog'
 import ProfileMenu from '../components/ProfileMenu'
 import Spinner from '../components/Spinner'
 import { forgetFavourite, listFavourites, toggleFavourite } from '../lib/favourites'
+import { UNSHELVED, chunk, groupByShelf, matchesBook } from '../lib/library'
 import { useProfile } from '../lib/profiles'
 import { listProgress } from '../lib/progress'
 import {
@@ -23,25 +24,6 @@ import { useOnline } from '../lib/useOnline'
 
 const PER_SHELF = 12 // books drawn on one wooden shelf
 const PAGE = 60 // how many more to draw when "Show more" is clicked
-const UNSHELVED = 'Unshelved'
-
-/** Case- and accent-insensitive match on title or author. */
-function matches(book: BookMeta, needle: string): boolean {
-  if (!needle) return true
-  const fold = (s: string) =>
-    s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
-  const hay = fold(`${book.title} ${book.author ?? ''}`)
-  return fold(needle)
-    .split(/\s+/)
-    .filter(Boolean)
-    .every((word) => hay.includes(word))
-}
-
-function chunk(books: BookMeta[], size: number): BookMeta[][] {
-  const out: BookMeta[][] = []
-  for (let i = 0; i < books.length; i += size) out.push(books.slice(i, i + size))
-  return out
-}
 
 export default function Library() {
   const [books, setBooks] = useState<BookMeta[]>([])
@@ -171,7 +153,7 @@ export default function Library() {
     .map((p) => ({ ...p, book: byId.get(p.bookId)! }))
 
   const found = useMemo(
-    () => books.filter((b) => matches(b, query) && (!favOnly || favourites.has(b.id))),
+    () => books.filter((b) => matchesBook(b, query) && (!favOnly || favourites.has(b.id))),
     [books, query, favOnly, favourites],
   )
   const inShelf = useMemo(
@@ -180,18 +162,7 @@ export default function Library() {
   )
 
   // Grouped browse view: every shelf that still has something in it.
-  const grouped = useMemo(() => {
-    const order = shelves.map((s) => s.name)
-    const bucket = new Map<string, BookMeta[]>()
-    for (const b of found) {
-      const name = b.shelf ?? UNSHELVED
-      const list = bucket.get(name)
-      list ? list.push(b) : bucket.set(name, [b])
-    }
-    return order
-      .filter((name) => bucket.has(name))
-      .map((name) => ({ name, books: bucket.get(name)! }))
-  }, [found, shelves])
+  const grouped = useMemo(() => groupByShelf(found, shelves), [found, shelves])
 
   // Browse by theme only when there is something to browse and no single
   // shelf or search is narrowing the view. Favourites still group by shelf.
