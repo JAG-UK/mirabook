@@ -1,0 +1,149 @@
+name: CI
+
+# Every pull request, whatever it targets. The three jobs below report
+# separately, so a red check names which layer broke without opening the log.
+on:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  backend:
+    name: Backend tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: backend/uv.lock
+
+      - name: Install Python
+        # Honours backend/.python-version, which pins 3.12.
+        run: uv python install
+        working-directory: backend
+
+      - name: Run pytest
+        # Covers ingest, the Gutenberg boilerplate stripper, the shelf
+        # taxonomy, the SQLite store and every API route. No Ollama needed:
+        # the translation provider is stubbed.
+        run: uv run pytest -q
+        working-directory: backend
+
+  backend-lint:
+    name: Backend lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: backend/uv.lock
+
+      - name: Run ruff
+        # `ruff check` only. The repo is not `ruff format` clean, and
+        # reformatting thirty files to make a lint job pass would bury real
+        # changes under whitespace.
+        run: uv run ruff check .
+        working-directory: backend
+
+  frontend-lint:
+    name: Frontend lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          # The version comes from "packageManager" in package.json, which
+          # lives in frontend/ — there is no package.json at the repo root for
+          # the action to find on its own.
+          package_json_file: frontend/package.json
+
+      - name: Install Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+        working-directory: frontend
+
+      - name: Run eslint
+        # --max-warnings pins the known react-hooks backlog at its current
+        # size, so it cannot quietly grow. See eslint.config.js.
+        run: pnpm lint
+        working-directory: frontend
+
+      - name: Typecheck
+        run: pnpm typecheck
+        working-directory: frontend
+
+  frontend-logic:
+    name: Frontend logic tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          # The version comes from "packageManager" in package.json, which
+          # lives in frontend/ — there is no package.json at the repo root for
+          # the action to find on its own.
+          package_json_file: frontend/package.json
+
+      - name: Install Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+        working-directory: frontend
+
+      - name: Run logic tests
+        # Pure functions and the localStorage-backed stores: search folding,
+        # shelf grouping, paging, favourites, progress, saved words. Node
+        # environment, no DOM — this suite runs in well under a second.
+        run: pnpm test:logic
+        working-directory: frontend
+
+  frontend-ui:
+    name: Frontend interactive tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          # The version comes from "packageManager" in package.json, which
+          # lives in frontend/ — there is no package.json at the repo root for
+          # the action to find on its own.
+          package_json_file: frontend/package.json
+
+      - name: Install Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+        working-directory: frontend
+
+      - name: Run interactive tests
+        # Components rendered into jsdom and driven the way a reader would:
+        # the edit dialog and the book spine, with the API client mocked.
+        run: pnpm test:ui
+        working-directory: frontend
