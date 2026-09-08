@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { BookMeta, deleteBook, listBooks, uploadBook } from '../api/client'
+import { BookMeta, Shelf, deleteBook, listBooks, listShelves, uploadBook } from '../api/client'
+import BookSpine from '../components/BookSpine'
 import ProfileMenu from '../components/ProfileMenu'
 import Spinner from '../components/Spinner'
 import { useProfile } from '../lib/profiles'
@@ -9,38 +10,49 @@ import {
   DownloadIndex,
   DownloadProgress,
   cacheLibrary,
+  cacheShelves,
   deleteOfflineBook,
   downloadBook,
-  formatBytes,
   getCachedLibrary,
+  getCachedShelves,
   getDownloadIndex,
 } from '../lib/offline'
 import { useOnline } from '../lib/useOnline'
 
-// Muted book-cloth colours; chosen deterministically per book.
-const SPINE_COLORS = [
-  '#7d2b2b', '#2f4f3e', '#274472', '#8a6d1f', '#5b2a4a',
-  '#356470', '#6b4423', '#3a3f5a', '#704214', '#4a5d23',
-]
-const PER_SHELF = 12
+const PER_SHELF = 12 // books drawn on one wooden shelf
+const PAGE = 60 // how many more to draw when "Show more" is clicked
+const UNSHELVED = 'Unshelved'
 
-function hash(s: string): number {
-  let h = 0
-  for (const c of s) h = (h * 31 + c.charCodeAt(0)) >>> 0
-  return h
+/** Case- and accent-insensitive match on title or author. */
+function matches(book: BookMeta, needle: string): boolean {
+  if (!needle) return true
+  const fold = (s: string) =>
+    s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
+  const hay = fold(`${book.title} ${book.author ?? ''}`)
+  return fold(needle)
+    .split(/\s+/)
+    .filter(Boolean)
+    .every((word) => hay.includes(word))
 }
-const spineColor = (id: string) => SPINE_COLORS[hash(id) % SPINE_COLORS.length]
-const spineHeight = (id: string) => 196 + (hash(id + 'h') % 52) // 196–247px
-const spineWidth = (id: string) => 50 + (hash(id + 'w') % 18) // 50–67px
+
+function chunk(books: BookMeta[], size: number): BookMeta[][] {
+  const out: BookMeta[][] = []
+  for (let i = 0; i < books.length; i += size) out.push(books.slice(i, i + size))
+  return out
+}
 
 export default function Library() {
   const [books, setBooks] = useState<BookMeta[]>([])
+  const [shelves, setShelves] = useState<Shelf[]>([])
   const [loading, setLoading] = useState(true)
   const [reachable, setReachable] = useState(true) // backend reachable?
   const [uploading, setUploading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [downloads, setDownloads] = useState<DownloadIndex>({})
   const [progress, setProgress] = useState<Record<string, DownloadProgress>>({})
+  const [query, setQuery] = useState('')
+  const [activeShelf, setActiveShelf] = useState<string | null>(null)
+  const [shown, setShown] = useState(PAGE)
   const fileInput = useRef<HTMLInputElement>(null)
   const navigate = useNavigate()
   const { active } = useProfile()
@@ -49,12 +61,15 @@ export default function Library() {
   const load = useCallback(async () => {
     setDownloads(await getDownloadIndex())
     try {
-      const b = await listBooks()
+      const [b, s] = await Promise.all([listBooks(), listShelves()])
       setBooks(b)
+      setShelves(s)
       setReachable(true)
       cacheLibrary(b)
+      cacheShelves(s)
     } catch {
       setBooks(await getCachedLibrary())
+      setShelves(await getCachedShelves())
       setReachable(false)
     } finally {
       setLoading(false)
@@ -64,6 +79,9 @@ export default function Library() {
   useEffect(() => {
     load()
   }, [load, online])
+
+  // A new search or shelf starts the list from the top again.
+  useEffect(() => setShown(PAGE), [query, activeShelf])
 
   async function onFile(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
@@ -129,9 +147,45 @@ export default function Library() {
     .slice(0, 4)
     .map((p) => ({ ...p, book: byId.get(p.bookId)! }))
 
-  const shelves: BookMeta[][] = []
-  for (let i = 0; i < books.length; i += PER_SHELF) shelves.push(books.slice(i, i + PER_SHELF))
-  if (shelves.length === 0) shelves.push([])
+  const found = useMemo(() => books.filter((b) => matches(b, query)), [books, query])
+  const inShelf = useMemo(
+    () => (activeShelf ? found.filter((b) => (b.shelf ?? UNSHELVED) === activeShelf) : found),
+    [found, activeShelf],
+  )
+
+  // Grouped browse view: every shelf that still has something in it.
+  const grouped = useMemo(() => {
+    const order = shelves.map((s) => s.name)
+    const bucket = new Map<string, BookMeta[]>()
+    for (const b of found) {
+      const name = b.shelf ?? UNSHELVED
+      const list = bucket.get(name)
+      list ? list.push(b) : bucket.set(name, [b])
+    }
+    return order
+      .filter((name) => bucket.has(name))
+      .map((name) => ({ name, books: bucket.get(name)! }))
+  }, [found, shelves])
+
+  // Browse by theme only when there is something to browse and nothing is
+  // narrowing the view already.
+  const browsing = !activeShelf && !query && grouped.length > 1
+
+  const renderSpine = (b: BookMeta) => (
+    <BookSpine
+      key={b.id}
+      book={b}
+      available={isAvailable(b.id)}
+      savedPage={progressMap.get(b.id)?.page}
+      download={downloads[b.id]}
+      progress={progress[b.id]}
+      reachable={reachable}
+      onOpen={(x) => navigate(`/read/${x.id}`)}
+      onDownload={startDownload}
+      onRemoveDownload={removeDownload}
+      onRemove={removeBook}
+    />
+  )
 
   const addSpine = (
     <button
@@ -145,13 +199,19 @@ export default function Library() {
     </button>
   )
 
+  const visible = inShelf.slice(0, shown)
+  const rows = chunk(visible, PER_SHELF)
+  if (rows.length === 0) rows.push([])
+
   return (
     <div className="mx-auto max-w-5xl px-5 py-10">
-      <header className="mb-8 flex items-end justify-between gap-3">
+      <header className="mb-6 flex items-end justify-between gap-3">
         <div>
           <h1 className="font-serif text-4xl font-bold tracking-tight">Mirabook</h1>
           <p className="mt-1 text-stone-500">
-            Your shelf of books to read in two languages.
+            {books.length > 0
+              ? `${books.length} book${books.length === 1 ? '' : 's'} to read in two languages.`
+              : 'Your shelf of books to read in two languages.'}
             {!reachable && (
               <span className="ml-2 rounded bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800">
                 Offline — showing downloaded books
@@ -191,6 +251,52 @@ export default function Library() {
         />
       </header>
 
+      {/* Search + themed shelves. Only worth the space once the shelf is big. */}
+      {books.length > PER_SHELF && (
+        <div className="mb-6 space-y-3">
+          <div className="relative">
+            <input
+              type="search"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Search by title or author…"
+              aria-label="Search the library"
+              className="w-full rounded-lg border border-stone-300 bg-white px-3 py-2 pl-9 text-sm shadow-sm focus:border-stone-500 focus:outline-none"
+            />
+            <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-stone-400">
+              ⌕
+            </span>
+          </div>
+          {shelves.length > 1 && (
+            <div className="flex flex-wrap gap-1.5">
+              <button
+                onClick={() => setActiveShelf(null)}
+                className={`rounded-full px-3 py-1 text-xs font-medium transition ${
+                  activeShelf === null
+                    ? 'bg-stone-800 text-white'
+                    : 'bg-stone-200 text-stone-600 hover:bg-stone-300'
+                }`}
+              >
+                All {books.length}
+              </button>
+              {shelves.map((s) => (
+                <button
+                  key={s.name}
+                  onClick={() => setActiveShelf(s.name === activeShelf ? null : s.name)}
+                  className={`rounded-full px-3 py-1 text-xs font-medium transition ${
+                    activeShelf === s.name
+                      ? 'bg-stone-800 text-white'
+                      : 'bg-stone-200 text-stone-600 hover:bg-stone-300'
+                  }`}
+                >
+                  {s.name} <span className="opacity-60">{s.count}</span>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
       {error && (
         <div className="mb-4 rounded-md bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>
       )}
@@ -200,7 +306,7 @@ export default function Library() {
         </div>
       )}
 
-      {continueList.length > 0 && (
+      {continueList.length > 0 && !query && !activeShelf && (
         <section className="mb-8">
           <h2 className="mb-3 text-xs font-semibold uppercase tracking-wide text-stone-400">
             Continue reading
@@ -215,6 +321,9 @@ export default function Library() {
                   className="w-56 rounded-xl border border-stone-200 bg-white p-3 text-left shadow-sm transition hover:border-stone-300 hover:shadow"
                 >
                   <div className="truncate font-serif font-semibold">{book.title}</div>
+                  {book.author && (
+                    <div className="truncate text-xs text-stone-400">{book.author}</div>
+                  )}
                   <div className="mt-1 text-xs text-stone-500">
                     Page {page} of {book.page_count}
                   </div>
@@ -230,89 +339,81 @@ export default function Library() {
 
       {loading ? (
         <Spinner label="Loading library…" />
-      ) : (
-        <div className="bookcase p-3">
-          {shelves.map((shelf, si) => (
-            <div key={si}>
-              <div className="shelf">
-                {shelf.map((b) => {
-                  const saved = progressMap.get(b.id)?.page
-                  const bookmarked = !!saved && saved > 1
-                  const downloaded = b.id in downloads
-                  const dl = progress[b.id]
-                  const available = isAvailable(b.id)
-                  return (
-                    <div
-                      key={b.id}
-                      className="spine-wrap"
-                      style={{ height: spineHeight(b.id), opacity: available ? 1 : 0.32 }}
-                    >
-                      <button
-                        className="spine"
-                        style={{ background: spineColor(b.id), width: spineWidth(b.id) }}
-                        onClick={() => available && navigate(`/read/${b.id}`)}
-                        disabled={!available}
-                        title={
-                          available
-                            ? bookmarked
-                              ? `${b.title} — resume on page ${saved} of ${b.page_count}`
-                              : `${b.title} — ${b.source_lang} → ${b.target_lang}, ${b.page_count} pages`
-                            : `${b.title} — not available offline`
-                        }
-                      >
-                        {bookmarked && <span className="bookmark-ribbon" />}
-                        <span className="spine-title">{b.title}</span>
-                      </button>
-
-                      {reachable && (
-                        <button
-                          className="spine-remove"
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            removeBook(b)
-                          }}
-                          title="Remove from library"
-                          aria-label={`Remove ${b.title} from library`}
-                        >
-                          ✕
-                        </button>
-                      )}
-
-                      <div className="spine-foot" onClick={(e) => e.stopPropagation()}>
-                        {dl ? (
-                          <span title={dl.label}>
-                            {Math.round((dl.done / Math.max(1, dl.total)) * 100)}%
-                          </span>
-                        ) : downloaded ? (
-                          <button
-                            className="done"
-                            onClick={() => removeDownload(b)}
-                            title={`Downloaded (${formatBytes(downloads[b.id].bytes)}) — click to remove`}
-                          >
-                            ✓
-                          </button>
-                        ) : reachable ? (
-                          <button onClick={() => startDownload(b)} title="Download for offline">
-                            ⤓
-                          </button>
-                        ) : null}
-                      </div>
-                    </div>
-                  )
-                })}
-                {si === shelves.length - 1 && reachable && addSpine}
-                {books.length === 0 && (
-                  <span className="ml-3 self-center text-sm italic text-amber-50/70">
-                    {reachable
-                      ? 'Your shelf is empty — add a Spanish PDF or EPUB.'
-                      : 'No downloaded books to read offline.'}
-                  </span>
+      ) : browsing ? (
+        // Browse by theme: one wooden shelf per category, deepest first.
+        <div className="space-y-6">
+          {grouped.map(({ name, books: shelfBooks }) => (
+            <section key={name}>
+              <div className="mb-2 flex items-baseline justify-between">
+                <h2 className="font-serif text-lg font-semibold">{name}</h2>
+                {shelfBooks.length > PER_SHELF && (
+                  <button
+                    onClick={() => setActiveShelf(name)}
+                    className="text-xs font-medium text-stone-500 hover:text-stone-800"
+                  >
+                    See all {shelfBooks.length} →
+                  </button>
                 )}
               </div>
-              <div className="shelf-board" />
-            </div>
+              <div className="bookcase p-3">
+                <div className="shelf">{shelfBooks.slice(0, PER_SHELF).map(renderSpine)}</div>
+                <div className="shelf-board" />
+              </div>
+            </section>
           ))}
         </div>
+      ) : (
+        <>
+          {(activeShelf || query) && (
+            <div className="mb-2 flex items-baseline justify-between">
+              <h2 className="font-serif text-lg font-semibold">
+                {activeShelf ?? 'Search results'}
+                <span className="ml-2 text-sm font-normal text-stone-400">
+                  {inShelf.length} book{inShelf.length === 1 ? '' : 's'}
+                </span>
+              </h2>
+              <button
+                onClick={() => {
+                  setActiveShelf(null)
+                  setQuery('')
+                }}
+                className="text-xs font-medium text-stone-500 hover:text-stone-800"
+              >
+                ← All books
+              </button>
+            </div>
+          )}
+          <div className="bookcase p-3">
+            {rows.map((row, si) => (
+              <div key={si}>
+                <div className="shelf">
+                  {row.map(renderSpine)}
+                  {si === rows.length - 1 && reachable && !activeShelf && !query && addSpine}
+                  {inShelf.length === 0 && (
+                    <span className="ml-3 self-center text-sm italic text-amber-50/70">
+                      {query || activeShelf
+                        ? 'Nothing here matches.'
+                        : reachable
+                          ? 'Your shelf is empty — add a Spanish PDF or EPUB.'
+                          : 'No downloaded books to read offline.'}
+                    </span>
+                  )}
+                </div>
+                <div className="shelf-board" />
+              </div>
+            ))}
+          </div>
+          {inShelf.length > shown && (
+            <div className="mt-4 text-center">
+              <button
+                onClick={() => setShown((n) => n + PAGE)}
+                className="rounded-lg border border-stone-300 bg-white px-4 py-2 text-sm font-medium text-stone-600 hover:bg-stone-100"
+              >
+                Show more ({inShelf.length - shown} left)
+              </button>
+            </div>
+          )}
+        </>
       )}
     </div>
   )

@@ -14,5 +14,7 @@ frontend/dist/
 # OS
 .DS_Store
 
+tsconfig.tsbuildinfo
+
 # Keep sample books tracked, but ignore extracted/derived media
 sample-books/**/images/

@@ -10,6 +10,7 @@ Run:  uv run python scripts/reingest.py
 from pathlib import Path
 
 from app.config import get_settings
+from app.ingest.gutenberg import page_count, strip_boilerplate
 from app.ingest.pdf import ingest_document
 from app.store.db import Store
 
@@ -29,6 +30,14 @@ def main() -> None:
                 src, meta.id, meta.title, media, f"/media/{meta.id}",
                 meta.source_lang, meta.target_lang,
             )
+            # Gutenberg books were imported with their licence boilerplate
+            # trimmed; re-ingest has to trim it the same way or every block id
+            # shifts and the cached translations are orphaned.
+            if (meta.source or "").startswith("gutenberg:"):
+                blocks = strip_boilerplate(blocks)
+                m.page_count = page_count(blocks)
+                m.toc = [t for t in m.toc if t.page <= m.page_count]
+            m.author, m.shelf, m.source = meta.author, meta.shelf, meta.source
             store.save_book(m, blocks)
             print(f"reingested {m.title!r}: {m.page_count} pages, {len(m.toc)} chapters")
     finally:

@@ -7,6 +7,7 @@ from pydantic import BaseModel
 
 from app.ingest.pdf import ingest_document
 from app.ingest.toc import derive_toc
+from app.shelves import SHELVES, UNSHELVED
 from app.models import (
     Alternative,
     BlockType,
@@ -44,6 +45,25 @@ async def health(req: Request):
 @router.get("/books", response_model=list[BookMeta])
 async def list_books(req: Request):
     return _store(req).list_books()
+
+
+class Shelf(BaseModel):
+    name: str
+    count: int
+
+
+@router.get("/shelves", response_model=list[Shelf])
+async def list_shelves(req: Request):
+    """The themed shelves that currently hold books, in display order.
+
+    Serving the canonical order from the backend keeps the library UI from
+    drifting out of step with `app.shelves`.
+    """
+    counts = _store(req).shelf_counts()
+    shelves = [Shelf(name=n, count=counts[n]) for n in SHELVES if counts.get(n)]
+    if counts.get(""):
+        shelves.append(Shelf(name=UNSHELVED, count=counts[""]))
+    return shelves
 
 
 SUPPORTED_UPLOADS = (".pdf", ".epub")

@@ -188,6 +188,55 @@ def test_delete_book_removes_rows_blocks_and_translations(loaded: Store):
 # --- migration ---
 
 
+def test_opening_a_pre_shelf_database_adds_the_book_columns(tmp_path):
+    """A database created before author/shelf/source existed must upgrade in
+    place. Regression: the source index was created in SCHEMA, which runs
+    before the migration, so opening any existing library raised
+    'no such column: source'."""
+    path = tmp_path / "old.db"
+    conn = sqlite3.connect(path)
+    conn.executescript(
+        """
+        CREATE TABLE books (
+          id TEXT PRIMARY KEY, title TEXT NOT NULL, source_lang TEXT NOT NULL,
+          target_lang TEXT NOT NULL, page_count INTEGER NOT NULL,
+          toc_json TEXT NOT NULL DEFAULT '[]',
+          created_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+        INSERT INTO books (id, title, source_lang, target_lang, page_count)
+        VALUES ('bk1', 'Don Quijote', 'Spanish', 'English', 32);
+        """
+    )
+    conn.commit()
+    conn.close()
+
+    store = Store(path)
+    try:
+        book = store.get_book("bk1")
+        assert book is not None
+        assert book.title == "Don Quijote"
+        assert book.author is None and book.shelf is None and book.source is None
+        assert store.sources() == set()
+    finally:
+        store.close()
+
+
+def test_provenance_and_shelf_round_trip(loaded: Store):
+    loaded.save_book(
+        make_meta("bk2", author="Cervantes", shelf="Novels", source="gutenberg:2000"), []
+    )
+    book = loaded.get_book("bk2")
+    assert (book.author, book.shelf, book.source) == ("Cervantes", "Novels", "gutenberg:2000")
+    assert loaded.sources() == {"gutenberg:2000"}
+
+
+def test_set_shelf_updates_only_that_book(loaded: Store):
+    loaded.save_book(make_meta("bk2", shelf="History"), [])
+    loaded.set_shelf("bk1", "Poetry")
+    assert loaded.get_book("bk1").shelf == "Poetry"
+    assert loaded.get_book("bk2").shelf == "History"
+
+
 def test_opening_a_pre_size_database_adds_the_column(tmp_path):
     """Databases created before `size` existed must upgrade in place."""
     path = tmp_path / "old.db"
