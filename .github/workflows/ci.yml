@@ -57,7 +57,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Install pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@v6
         with:
           # The version comes from "packageManager" in package.json, which
           # lives in frontend/ — there is no package.json at the repo root for
@@ -92,7 +92,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Install pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@v6
         with:
           # The version comes from "packageManager" in package.json, which
           # lives in frontend/ — there is no package.json at the repo root for
@@ -124,7 +124,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Install pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@v6
         with:
           # The version comes from "packageManager" in package.json, which
           # lives in frontend/ — there is no package.json at the repo root for
